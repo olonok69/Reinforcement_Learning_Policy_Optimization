@@ -1,259 +1,260 @@
-# RL Policy Optimization Benchmarks — 60-Minute Presentation Guide
+# RL Policy Optimization — Presentation Guide Part 1 (60 minutes)
+
+## Scope of Part 1
+This first session is intentionally detailed for a low-level audience.
+
+It covers:
+- RL foundations needed before policy optimization
+- Why Monte Carlo estimation appears in REINFORCE
+- The policy gradient theorem intuition
+- REINFORCE end-to-end (math + implementation mapping)
+- How to run and explain the repository code for REINFORCE
+
+It does **not** cover A2C/A3C/PPO/TRPO in depth. Those are in Part 2.
+
+---
 
 ## 1) Session objective
-By the end of this talk, the audience should understand:
-- What this application does
-- Core RL concepts (MDP, return, exploration/exploitation)
-- What **Policy Optimization** means in practice
-- How each implemented algorithm maps to code in this repository
-- How to run and compare all methods end-to-end
+By the end of this Part 1 talk, the audience should be able to explain:
+- What a policy is and why we optimize it directly
+- What return means in episodic tasks
+- Why Monte Carlo returns are unbiased but high variance
+- How REINFORCE updates policy parameters
+- How theory maps to repository code and runnable scripts
 
 ---
 
 ## 2) Suggested 60-minute agenda
 
-- **0–5 min**: Problem framing and application overview
-- **5–15 min**: RL fundamentals (MDP, return, exploration/exploitation)
-- **15–25 min**: Policy objective and policy gradient intuition
-- **25–40 min**: Algorithms implemented (code-linked walkthrough)
-- **40–50 min**: Live run flow (single method → all methods → aggregate report)
-- **50–57 min**: Results interpretation and trade-offs
-- **57–60 min**: Key takeaways and Q&A
+- **0–8 min**: Problem framing + what this app does
+- **8–20 min**: RL fundamentals (MDP, trajectory, return)
+- **20–33 min**: Policy optimization and policy gradient intuition
+- **33–48 min**: REINFORCE detailed walkthrough (equations + pseudo-code + code links)
+- **48–55 min**: Live run (single method + compare mode)
+- **55–60 min**: Q&A + transition to Part 2
 
 ---
 
 ## 3) What this application is
 
-This repository is a benchmarking application for policy-optimization RL algorithms on `CartPole-v1`.
+This repository is a benchmarking app for policy-optimization methods on `CartPole-v1`.
 
 ### Core capabilities
-- Run each algorithm independently (one script per method)
-- Run all algorithms from one orchestrator
-- Save standardized metrics (`episodes`, `elapsed_sec`, `max_avg_reward_100`, `final_avg_reward_100`)
-- Aggregate multiple runs/seeds
-- Generate plots and a Markdown report
+- Standalone scripts per algorithm
+- Unified orchestrator for algorithm comparison
+- Standardized benchmark metrics and outputs
+- Aggregate reporting and plots
 
 ### Entry points
 - Unified orchestrator: [run_all_comparison.py](../run_all_comparison.py)
-- Compatibility entrypoint: [rl_comparison.py](../rl_comparison.py)
+- REINFORCE standalone runner: [policy_gradient_benchmark.py](../policy_gradient_benchmark.py)
 
-### Shared benchmarking utilities
-- [benchmarks/common.py](../benchmarks/common.py)
+### Core REINFORCE module for this session
+- [benchmarks/policy_gradient.py](../benchmarks/policy_gradient.py)
 
 ---
 
-## 4) RL concepts you should explain
+## 4) RL fundamentals (beginner-first)
 
-### 4.1 MDP framing
-An RL problem is usually modeled as a Markov Decision Process (MDP):
-- state $s_t$
-- action $a_t$
-- reward $r_t$
-- transition dynamics $P(s_{t+1}|s_t,a_t)$
-- discount factor $\gamma$
+### 4.1 MDP building blocks
+An RL task is usually modeled as a Markov Decision Process (MDP):
+- state: $s_t$
+- action: $a_t$
+- reward: $r_t$
+- transition dynamics: $P(s_{t+1}|s_t,a_t)$
+- discount factor: $\gamma \in [0,1]$
 
-The objective is to maximize expected discounted return:
+### 4.2 Trajectory and return
+One episode (trajectory) is:
 
 $$
-G_t = \sum_{k=0}^{\infty} \gamma^k r_{t+k}
+\tau=(s_0,a_0,r_0,s_1,a_1,r_1,\dots)
 $$
 
-### 4.2 What is Policy Optimization?
-Policy Optimization methods directly optimize policy parameters $\theta$ of $\pi_\theta(a|s)$ to maximize expected return:
+Discounted return from time $t$:
+
+$$
+G_t=\sum_{k=0}^{T-t-1}\gamma^k r_{t+k}
+$$
+
+Low-level intuition:
+- Immediate rewards matter more than distant rewards when $\gamma<1$.
+- Return is the training target signal that tells us if sampled behavior was good.
+
+### 4.3 Why stochastic policies?
+For policy optimization we model:
+
+$$
+\pi_\theta(a|s)
+$$
+
+as a probability distribution over actions. This helps:
+- exploration during training
+- smooth gradients for optimization
+- learning action preference, not only a hard decision rule
+
+---
+
+## 5) Policy optimization from first principles
+
+### 5.1 Objective
+We maximize expected trajectory return:
 
 $$
 J(\theta)=\mathbb{E}_{\tau\sim\pi_\theta}[R(\tau)]
 $$
 
-Typical gradient idea:
+### 5.2 Log-derivative trick (high-level)
+Directly differentiating trajectory probability is hard.
+Policy gradient uses:
 
 $$
-\nabla_\theta J(\theta) \propto \mathbb{E}[\nabla_\theta\log \pi_\theta(a_t|s_t)\,\hat{A}_t]
+\nabla_\theta p_\theta(\tau)=p_\theta(\tau)\nabla_\theta\log p_\theta(\tau)
 $$
 
-Where $\hat{A}_t$ (advantage) tells whether an action was better or worse than baseline expectation.
+which leads to a gradient estimate using sampled trajectories.
 
-### 4.3 Why optimize the policy directly?
-Policy Optimization is useful when we care about learning a robust action distribution, not only a value estimate.
+### 5.3 Policy gradient estimator shape
+A common form:
 
-Key intuition:
-- A policy is a probability distribution over actions.
-- If an action leads to better-than-expected outcomes ($\hat{A}_t > 0$), increase its probability.
-- If an action leads to worse-than-expected outcomes ($\hat{A}_t < 0$), decrease its probability.
+$$
+\nabla_\theta J(\theta)\propto\mathbb{E}\left[\sum_t\nabla_\theta\log\pi_\theta(a_t|s_t)\,G_t\right]
+$$
 
-The gradient term $\nabla_\theta \log \pi_\theta(a_t|s_t)$ points in the direction that increases action likelihood. Multiplying by $\hat{A}_t$ turns this into a reward-weighted update.
-
-### 4.4 Variance, bias, and stability in practice
-In real training, policy gradients can be noisy. Most algorithms in this repo address that with:
-- **Baselines / critics** (A2C, A3C, PPO, TRPO) to reduce variance.
-- **Entropy regularization** to prevent premature deterministic policies.
-- **Trust constraints or clipping** (TRPO/PPO) to avoid destructive parameter jumps.
-
-### 4.5 On-policy workflow (common to these methods)
-The implemented methods mainly follow an on-policy loop:
-1. Roll out trajectories with current policy.
-2. Estimate returns/advantages.
-3. Optimize policy (and value model when present).
-4. Discard old trajectories and repeat with updated policy.
-
-This is generally stable, but can be less sample-efficient than replay-buffer methods.
+Interpretation for beginners:
+- $\nabla_\theta\log\pi_\theta(a_t|s_t)$: “direction to increase probability of chosen action”
+- $G_t$: “how good that sampled outcome turned out to be”
+- Multiplication means better outcomes reinforce corresponding action tendencies.
 
 ---
 
-## 5) Algorithm map (with code links)
+## 6) Monte Carlo in REINFORCE
 
-### Policy Gradient (REINFORCE)
-- Code: [benchmarks/policy_gradient.py](../benchmarks/policy_gradient.py)
-- Runner: [policy_gradient_benchmark.py](../policy_gradient_benchmark.py)
-- Key point: Monte Carlo returns directly weight policy log-prob gradients.
-- Presenter note: emphasize this as the "pure" estimator; simple but high-variance.
+### 6.1 What Monte Carlo means here
+REINFORCE waits until episode end, then computes full returns from sampled rewards.
+No bootstrap value target is used in the base version.
 
-### A2C (Advantage Actor-Critic)
-- Code: [benchmarks/a2c.py](../benchmarks/a2c.py)
-- Runner: [a2c_benchmark.py](../a2c_benchmark.py)
-- Key point: actor + critic; advantage reduces variance vs plain REINFORCE.
-- Presenter note: actor decides, critic explains; this decomposition is usually the first major stability jump.
+### 6.2 Why this is useful
+- Unbiased estimate of return for sampled policy
+- Very simple implementation
 
-### A3C (Asynchronous Advantage Actor-Critic)
-- Code: [benchmarks/a3c.py](../benchmarks/a3c.py)
-- Runner: [a3c_benchmark.py](../a3c_benchmark.py)
-- Key point: multi-process workers collect rollouts asynchronously; central learner updates shared model.
-- Presenter note: highlight wall-clock speedups and decorrelated data from parallel workers.
+### 6.3 Why this is difficult
+- High variance updates
+- Learning can be unstable and slower
 
-### PPO (Proximal Policy Optimization)
-- Code: [benchmarks/ppo.py](../benchmarks/ppo.py)
-- Runner: [ppo_benchmark.py](../ppo_benchmark.py)
-- Key point: clipped objective for stable policy improvement.
-- Presenter note: this is often the practical default due to simplicity/stability balance.
+### 6.4 Small numerical example
+Suppose one episode has rewards: $[1,1,1]$, with $\gamma=0.9$.
+Then returns are:
 
-### TRPO (Trust Region Policy Optimization)
-- Code: [benchmarks/trpo.py](../benchmarks/trpo.py)
-- Runner: [trpo_benchmark.py](../trpo_benchmark.py)
-- Key point: trust-region constrained update (implemented via `sb3-contrib` integration).
-- Presenter note: conceptually principled and conservative updates, usually with heavier optimization cost.
+$$
+G_0=1+0.9+0.9^2=2.71,
+\quad G_1=1+0.9=1.9,
+\quad G_2=1
+$$
+
+The earliest action gets highest weight because it influences more future rewards.
 
 ---
 
-## 6) How to run (demo-ready commands)
+## 7) REINFORCE algorithm (step-by-step)
 
-### 6.1 Environment setup
+1. Reset environment and sample one episode using current policy.
+2. Store per-step log-probabilities and rewards.
+3. Compute discounted returns for each timestep.
+4. (Optional) normalize returns to stabilize scale.
+5. Compute loss:
+
+$$
+\mathcal{L}_{policy}=-\sum_t\log\pi_\theta(a_t|s_t)\,G_t
+$$
+
+6. Backpropagate and update parameters with Adam.
+7. Repeat for many episodes.
+
+---
+
+## 8) Code mapping for Part 1
+
+### REINFORCE implementation
+- Config/dataclass: [benchmarks/policy_gradient.py](../benchmarks/policy_gradient.py)
+- Policy network (`PolicyNetwork`): [benchmarks/policy_gradient.py](../benchmarks/policy_gradient.py)
+- Discounted returns helper (`_discounted_returns`): [benchmarks/policy_gradient.py](../benchmarks/policy_gradient.py)
+- Training loop (`run_policy_gradient`): [benchmarks/policy_gradient.py](../benchmarks/policy_gradient.py)
+
+### CLI runner for demo
+- [policy_gradient_benchmark.py](../policy_gradient_benchmark.py)
+
+### Unified comparison entrypoint
+- [run_all_comparison.py](../run_all_comparison.py)
+
+---
+
+## 9) Demo commands (Part 1)
+
+### Setup
 ```bash
 uv sync
 ```
 
-### 6.2 Run one algorithm
+### Run REINFORCE only
 ```bash
-uv run python ppo_benchmark.py
+uv run python policy_gradient_benchmark.py
 ```
 
-### 6.3 Run all algorithms
+### REINFORCE with custom knobs
 ```bash
-uv run python run_all_comparison.py
+uv run python policy_gradient_benchmark.py --episodes 900 --gamma 0.99 --learning-rate 0.001
 ```
 
-Or selected subset:
+### REINFORCE with evaluation video
 ```bash
-uv run python run_all_comparison.py --methods policy_gradient ppo trpo
+uv run python policy_gradient_benchmark.py --record-video --video-dir videos/policy_gradient --video-episodes 2
 ```
 
-### 6.4 Aggregate multi-seed outputs
+### Through unified orchestrator (REINFORCE only)
 ```bash
-uv run python scripts/aggregate_results.py --inputs outputs/*.json --output-json outputs/aggregate_summary.json --output-csv outputs/aggregate_summary.csv
+uv run python run_all_comparison.py --methods policy_gradient --policy-gradient-episodes 900
 ```
-
-### 6.5 Generate plots + report
-```bash
-uv run python scripts/generate_aggregate_report.py --input outputs/aggregate_summary.json --output-dir outputs/report --title "RL Policy Optimization Aggregate Report"
-```
-
-Generated report:
-- [outputs/report/aggregate_report.md](../outputs/report/aggregate_report.md)
 
 ---
 
-## 7) How to present the output metrics
+## 10) Teaching notes for low-level audience
 
-Primary metrics in this app:
-- `max_avg_reward_100`: best moving average over 100 episodes (peak capability)
-- `final_avg_reward_100`: average over last 100 episodes (end-of-training stability)
-- `elapsed_sec`: wall-clock time (compute efficiency)
-- `episodes`: total episodes used
+Use this sequence on slides/whiteboard:
 
-Interpretation recommendation:
-- Compare **peak** (`max_avg_reward_100`) for best discovered behavior
-- Compare **final** (`final_avg_reward_100`) for convergence quality
-- Compare **time** for practical cost
-- Use multiple seeds for statistical confidence
+1. Define policy as probabilities over actions.
+2. Explain one sampled trajectory as “evidence”.
+3. Show discounted return and why early actions affect future outcomes.
+4. Show policy-gradient term as “increase probability of actions that led to better return”.
+5. Clarify Monte Carlo trade-off: simple + unbiased, but noisy.
 
----
-
-## 8) Suggested slide narrative (concise)
-
-1. **Why RL benchmark app?**
-   - Need apples-to-apples comparison under shared environment and metrics.
-
-2. **Policy optimization intuition**
-   - Directly improve policy quality from returns and advantage estimates.
-   - Explain why clipped/trust-region updates reduce catastrophic policy shifts.
-
-3. **Algorithm progression**
-   - REINFORCE → A2C/A3C → PPO/TRPO.
-
-4. **Engineering architecture**
-   - Independent scripts + one orchestrator + aggregation + report generation.
-
-5. **Results and trade-offs**
-   - Performance, stability, compute time.
-
-6. **Practical recommendation**
-   - For production-like baselines: PPO/A2C, with TRPO for constrained-update scenarios.
+Common confusion to address explicitly:
+- “Is this supervised learning?” → No labels; rewards are delayed and environment-generated.
+- “Why not just choose max action immediately?” → Stochasticity supports exploration and gradient learning.
+- “Why normalize returns?” → Helps update magnitudes be more stable.
 
 ---
 
-## 9) Quick Q&A prep
+## 11) Bridge to Part 2
 
-- **Why does one algorithm score higher but take much longer?**
-  - Different sample efficiency, optimization style, and compute overhead.
+Part 2 answers the natural question after REINFORCE:
+- How do we reduce variance and improve stability/performance?
 
-- **Why do we need multiple seeds?**
-  - RL has high variance; one run can be misleading.
+That leads to:
+- A2C / A3C (critic baseline + parallelism)
+- PPO (clipped updates)
+- TRPO (trust-region updates)
 
-- **Why keep multiple policy optimization methods?**
-  - They provide different stability/efficiency trade-offs and practical deployment options.
-
----
-
-## 10) 5-minute whiteboard script
-
-Use this as a fast spoken walkthrough:
-
-1. **Goal (30s)**
-   - "We want a policy that maps states to actions maximizing long-term reward."
-
-2. **Core object (45s)**
-   - "Our policy is $\pi_\theta(a|s)$, a probability distribution over actions."
-   - "Training means adjusting $\theta$ so better actions become more likely."
-
-3. **Learning signal (60s)**
-   - "After rollouts, we estimate advantage $\hat{A}_t$."
-   - "If $\hat{A}_t>0$, increase probability of that action; if $\hat{A}_t<0$, decrease it."
-   - "This is captured by $\nabla_\theta \log \pi_\theta(a_t|s_t)\,\hat{A}_t$."
-
-4. **Algorithm progression (90s)**
-   - "REINFORCE: pure Monte Carlo policy gradient, simple but noisy."
-   - "A2C/A3C: add critic baseline to reduce variance; A3C adds async workers."
-   - "PPO/TRPO: constrain update size (clip or trust region) for stable improvement."
-
-5. **Practical trade-off (45s)**
-   - "More conservative updates often improve stability but can cost extra compute/time."
-   - "PPO is typically the practical default; TRPO for stricter policy-step control."
-
-6. **Close (30s)**
-   - "We compare methods with shared metrics: peak reward, final reward, and elapsed time."
-   - "Always validate across multiple seeds due to RL variance."
+Part 2 guide:
+- [presentation_guide_part2_60min.md](presentation_guide_part2_60min.md)
 
 ---
 
-## 11) Additional repo docs
-- Main project guide: [README.md](../README.md)
-- Algorithm-specific docs index: [doc/README.md](README.md)
+## 12) Suggested external reading (concept reinforcement)
+
+Use these as optional references for deeper conceptual reinforcement:
+- https://cameronrwolfe.substack.com/p/policy-gradients-the-foundation-of
+- https://www.linkedin.com/pulse/policy-gradient-theorem-continuous-tasks-rl-abram-george/
+- https://jonathan-hui.medium.com/rl-policy-gradients-explained-9b13b688b146
+
+These references complement this deck; keep repository code as the source-of-truth for implementation details.

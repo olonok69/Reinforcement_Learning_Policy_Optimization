@@ -3,11 +3,13 @@
 This folder contains detailed notes for every benchmark method implemented in this repository.
 
 ## Spanish versions
-- Presentation guide (ES): [presentation_guide_60min_es.md](presentation_guide_60min_es.md)
+- Presentation guide Part 1 (ES): [presentation_guide_60min_es.md](presentation_guide_60min_es.md)
+- Presentation guide Part 2 (ES): [presentation_guide_part2_60min_es.md](presentation_guide_part2_60min_es.md)
 - Algorithm docs (ES): [es/README.md](es/README.md)
 
 ## Per-algorithm docs
-- `presentation_guide_60min.md` (presentation-ready application + theory + code map)
+- `presentation_guide_60min.md` (Part 1: detailed policy optimization + Monte Carlo + REINFORCE)
+- `presentation_guide_part2_60min.md` (Part 2: A2C, A3C, PPO, TRPO)
 - `03_policy_gradient.md`
 - `04_a2c.md`
 - `05_a3c.md`

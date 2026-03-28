@@ -3,6 +3,8 @@
 Esta carpeta contiene versiones en español de los documentos de algoritmos usados en el benchmark.
 
 ## Documentos
+- `../presentation_guide_60min_es.md` (Parte 1: policy optimization + Monte Carlo + REINFORCE)
+- `../presentation_guide_part2_60min_es.md` (Parte 2: A2C, A3C, PPO, TRPO)
 - `03_policy_gradient.md`
 - `04_a2c.md`
 - `05_a3c.md`

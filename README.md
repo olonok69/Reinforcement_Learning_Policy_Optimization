@@ -3,8 +3,9 @@
 Multi-algorithm reinforcement learning benchmark suite on `CartPole-v1`, with independent scripts per method and a unified comparison runner.
 
 ## Presentation series
-This repository is prepared for a **single-session presentation** covering all policy optimization methods:
-- **Policy Optimization (single presentation)**: Policy Gradient, A2C, A3C, PPO, TRPO → [Presentation guide](doc/presentation_guide_60min.md)
+This repository is prepared for a **two-part presentation series**:
+- **Part 1**: Detailed introduction to Policy Optimization, Monte Carlo, and REINFORCE → [Presentation guide](doc/presentation_guide_60min.md)
+- **Part 2**: A2C, A3C, PPO, TRPO and comparison workflow → [Presentation guide](doc/presentation_guide_part2_60min.md)
 
 ## Scope
 This repository includes policy-optimization methods:
