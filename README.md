@@ -2,6 +2,10 @@
 
 Multi-algorithm reinforcement learning benchmark suite on `CartPole-v1`, with independent scripts per method and a unified comparison runner.
 
+## Presentation series
+This repository is prepared for a **single-session presentation** covering all policy optimization methods:
+- **Policy Optimization (single presentation)**: Policy Gradient, A2C, A3C, PPO, TRPO → [Presentation guide](doc/presentation_guide_60min.md)
+
 ## Scope
 This repository includes policy-optimization methods:
 - Policy Gradient (REINFORCE)
@@ -9,6 +13,18 @@ This repository includes policy-optimization methods:
 - A3C
 - PPO
 - TRPO
+
+## Documentation
+Comprehensive algorithm guides with theory, implementation walkthroughs, and code mapping:
+
+| Guide | Description |
+|-------|-------------|
+| [doc/03_policy_gradient.md](doc/03_policy_gradient.md) | Policy Gradient (REINFORCE) foundations and implementation details |
+| [doc/04_a2c.md](doc/04_a2c.md) | Advantage Actor-Critic explanation and training flow |
+| [doc/05_a3c.md](doc/05_a3c.md) | Asynchronous actor-critic architecture and worker/learner interaction |
+| [doc/06_ppo.md](doc/06_ppo.md) | PPO clipped objective, GAE, and update loop |
+| [doc/07_trpo.md](doc/07_trpo.md) | TRPO trust-region intuition and benchmark integration |
+| [doc/README.md](doc/README.md) | Full documentation index |
 
 ## Book-based documentation
 Detailed algorithm writeups grounded in:
@@ -36,6 +52,14 @@ uv run python ppo_benchmark.py
 uv run python trpo_benchmark.py
 ```
 
+Method scripts support configurable hyperparameters. Example:
+
+```bash
+uv run python ppo_benchmark.py --episodes 700 --rollout-steps 2048 --update-epochs 6
+uv run python a3c_benchmark.py --episodes 600 --workers 8 --rollout-steps 10
+uv run python trpo_benchmark.py --timesteps 200000
+```
+
 ## Run all methods together
 Unified orchestrator:
 
@@ -47,6 +71,18 @@ Run selected methods only:
 
 ```bash
 uv run python run_all_comparison.py --methods policy_gradient ppo trpo
+```
+
+With video recording:
+
+```bash
+uv run python run_all_comparison.py --methods policy_gradient ppo --record-video --video-dir videos --video-episodes 3
+```
+
+Override per-method training budgets from the orchestrator:
+
+```bash
+uv run python run_all_comparison.py --methods policy_gradient a2c a3c ppo trpo --policy-gradient-episodes 700 --a2c-episodes 600 --a3c-episodes 600 --ppo-episodes 700 --trpo-timesteps 200000
 ```
 
 Strict mode (stop on first failure):

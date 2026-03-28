@@ -2,6 +2,10 @@
 
 Suite de benchmarks de reinforcement learning con múltiples algoritmos sobre `CartPole-v1`, con scripts independientes por método y un runner unificado de comparación.
 
+## Serie de presentaciones
+Este repositorio está preparado para una **presentación única** cubriendo todos los métodos de policy optimization:
+- **Policy Optimization (sesión única)**: Policy Gradient, A2C, A3C, PPO, TRPO → [Guía de presentación](doc/presentation_guide_60min_es.md)
+
 ## Alcance
 Este repositorio incluye métodos de policy optimization:
 - Policy Gradient (REINFORCE)
@@ -9,6 +13,18 @@ Este repositorio incluye métodos de policy optimization:
 - A3C
 - PPO
 - TRPO
+
+## Documentación
+Guías completas de algoritmos con teoría, walkthrough de implementación y mapa de código:
+
+| Guía | Descripción |
+|------|-------------|
+| [doc/03_policy_gradient.md](doc/03_policy_gradient.md) | Fundamentos de Policy Gradient (REINFORCE) e implementación |
+| [doc/04_a2c.md](doc/04_a2c.md) | Explicación de Advantage Actor-Critic y flujo de entrenamiento |
+| [doc/05_a3c.md](doc/05_a3c.md) | Arquitectura asíncrona actor-critic e interacción worker/learner |
+| [doc/06_ppo.md](doc/06_ppo.md) | Objetivo con clipping en PPO, GAE y loop de actualización |
+| [doc/07_trpo.md](doc/07_trpo.md) | Intuición trust-region de TRPO e integración de benchmark |
+| [doc/README.md](doc/README.md) | Índice completo de documentación |
 
 ## Documentación basada en libro
 Explicaciones detalladas de algoritmos basadas en:
@@ -34,6 +50,14 @@ uv run python ppo_benchmark.py
 uv run python trpo_benchmark.py
 ```
 
+Los scripts también permiten ajustar hiperparámetros. Ejemplo:
+
+```bash
+uv run python ppo_benchmark.py --episodes 700 --rollout-steps 2048 --update-epochs 6
+uv run python a3c_benchmark.py --episodes 600 --workers 8 --rollout-steps 10
+uv run python trpo_benchmark.py --timesteps 200000
+```
+
 ## Ejecutar todos los métodos juntos
 Orquestador unificado:
 
@@ -45,6 +69,18 @@ Ejecutar solo métodos seleccionados:
 
 ```bash
 uv run python run_all_comparison.py --methods policy_gradient ppo trpo
+```
+
+Con grabación de video:
+
+```bash
+uv run python run_all_comparison.py --methods policy_gradient ppo --record-video --video-dir videos --video-episodes 3
+```
+
+También puedes ajustar budget por método desde el orquestador:
+
+```bash
+uv run python run_all_comparison.py --methods policy_gradient a2c a3c ppo trpo --policy-gradient-episodes 700 --a2c-episodes 600 --a3c-episodes 600 --ppo-episodes 700 --trpo-timesteps 200000
 ```
 
 Modo estricto (detener en el primer fallo):

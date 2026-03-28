@@ -1,4 +1,5 @@
 from __future__ import annotations
+"""Proximal Policy Optimization (PPO) benchmark on CartPole-v1."""
 
 from dataclasses import dataclass
 
@@ -8,9 +9,13 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
+from benchmarks.common import record_policy_video
+
 
 @dataclass
 class PPOConfig:
+    """Configuration for PPO training and update schedule."""
+
     env_name: str = "CartPole-v1"
     gamma: float = 0.99
     gae_lambda: float = 0.95
@@ -23,9 +28,14 @@ class PPOConfig:
     clip_eps: float = 0.2
     value_coef: float = 0.5
     entropy_coef: float = 0.01
+    record_video: bool = False
+    video_dir: str = "videos/ppo"
+    video_episodes: int = 3
 
 
 class ActorCritic(nn.Module):
+    """MLP actor-critic with shared trunk and separate policy/value heads."""
+
     def __init__(self, input_size: int, n_actions: int, hidden_size: int = 128):
         super().__init__()
         self.shared = nn.Sequential(
@@ -50,6 +60,8 @@ def _compute_gae(
     gamma: float,
     gae_lambda: float,
 ) -> tuple[np.ndarray, np.ndarray]:
+    """Compute generalized advantage estimates and bootstrapped returns."""
+
     advantages = np.zeros_like(rewards, dtype=np.float32)
     gae = 0.0
     for t in reversed(range(len(rewards))):
@@ -63,6 +75,8 @@ def _compute_gae(
 
 
 def run_ppo(config: PPOConfig | None = None) -> list[float]:
+    """Train a PPO agent and return per-episode rewards."""
+
     cfg = config or PPOConfig()
     print("\n--- Starting PPO ---")
 
@@ -180,6 +194,23 @@ def run_ppo(config: PPOConfig | None = None) -> list[float]:
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
+
+    if cfg.record_video:
+        net.eval()
+
+        def _policy(state: np.ndarray) -> int:
+            with torch.no_grad():
+                state_t = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
+                logits, _ = net(state_t)
+                return int(torch.argmax(logits, dim=1).item())
+
+        record_policy_video(
+            env_name=cfg.env_name,
+            video_dir=cfg.video_dir,
+            episodes=cfg.video_episodes,
+            name_prefix="ppo",
+            policy_fn=_policy,
+        )
 
     env.close()
     return rewards_history

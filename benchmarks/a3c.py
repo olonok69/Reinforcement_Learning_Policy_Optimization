@@ -1,4 +1,5 @@
 from __future__ import annotations
+"""Asynchronous Advantage Actor-Critic (A3C) benchmark on CartPole-v1."""
 
 from dataclasses import dataclass
 import multiprocessing as mp
@@ -12,9 +13,13 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
+from benchmarks.common import record_policy_video
+
 
 @dataclass
 class A3CConfig:
+    """Configuration for asynchronous actor-critic training."""
+
     env_name: str = "CartPole-v1"
     gamma: float = 0.99
     learning_rate: float = 1e-3
@@ -24,9 +29,14 @@ class A3CConfig:
     entropy_coef: float = 0.01
     workers: int = 4
     rollout_steps: int = 5
+    record_video: bool = False
+    video_dir: str = "videos/a3c"
+    video_episodes: int = 3
 
 
 class ActorCritic(nn.Module):
+    """Shared-backbone actor-critic model used by learner and workers."""
+
     def __init__(self, input_size: int, n_actions: int, hidden_size: int = 128):
         super().__init__()
         self.shared = nn.Sequential(
@@ -42,6 +52,8 @@ class ActorCritic(nn.Module):
 
 
 def _snapshot_state_dict(shared_state: tt.Any) -> dict[str, torch.Tensor]:
+    """Convert a manager-backed mapping into a regular tensor state dict."""
+
     return {k: v for k, v in shared_state.items()}
 
 
@@ -53,6 +65,8 @@ def _worker_loop(
     error_queue: tt.Any,
     stop_event: tt.Any,
 ) -> None:
+    """Collect async rollouts and push episodes/batches to learner queues."""
+
     env = None
     try:
         env = gym.make(cfg.env_name)
@@ -150,6 +164,8 @@ def _worker_loop(
 
 
 def run_a3c(config: A3CConfig | None = None) -> list[float]:
+    """Train an A3C agent and return collected episode rewards."""
+
     cfg = config or A3CConfig()
     print("\n--- Starting A3C ---")
 
@@ -242,5 +258,22 @@ def run_a3c(config: A3CConfig | None = None) -> list[float]:
             if p.is_alive():
                 p.terminate()
                 p.join(timeout=1.0)
+
+    if cfg.record_video:
+        net.eval()
+
+        def _policy(state: np.ndarray) -> int:
+            with torch.no_grad():
+                state_t = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
+                logits, _ = net(state_t)
+                return int(torch.argmax(logits, dim=1).item())
+
+        record_policy_video(
+            env_name=cfg.env_name,
+            video_dir=cfg.video_dir,
+            episodes=cfg.video_episodes,
+            name_prefix="a3c",
+            policy_fn=_policy,
+        )
 
     return rewards

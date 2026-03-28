@@ -128,6 +128,7 @@ datasets/
 examples/
 HP/
 videos/
+videos_smoke/
 *.pdf
 *.zip
 PPO_TRPO_ACKTR_SAC/

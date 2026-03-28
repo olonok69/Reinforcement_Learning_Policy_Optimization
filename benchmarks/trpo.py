@@ -1,18 +1,33 @@
 from __future__ import annotations
+"""Trust Region Policy Optimization (TRPO) benchmark wrapper.
+
+This module delegates optimization details to `sb3-contrib` and exposes a
+consistent benchmark interface used by the repository orchestrators.
+"""
 
 from dataclasses import dataclass
 import importlib
 
 import gymnasium as gym
+import numpy as np
+
+from benchmarks.common import record_policy_video
 
 
 @dataclass
 class TRPOConfig:
+    """Configuration for TRPO benchmark execution."""
+
     env_name: str = "CartPole-v1"
     total_timesteps: int = 100_000
+    record_video: bool = False
+    video_dir: str = "videos/trpo"
+    video_episodes: int = 3
 
 
 def run_trpo(config: TRPOConfig | None = None) -> list[float]:
+    """Train a TRPO agent and return monitored episode rewards."""
+
     cfg = config or TRPOConfig()
     print("\n--- Starting TRPO ---")
 
@@ -47,6 +62,19 @@ def run_trpo(config: TRPOConfig | None = None) -> list[float]:
 
     callback = EpisodeRewardCallback()
     model.learn(total_timesteps=cfg.total_timesteps, callback=callback)
+
+    if cfg.record_video:
+        def _policy(state: np.ndarray) -> int:
+            action, _ = model.predict(state, deterministic=True)
+            return int(action)
+
+        record_policy_video(
+            env_name=cfg.env_name,
+            video_dir=cfg.video_dir,
+            episodes=cfg.video_episodes,
+            name_prefix="trpo",
+            policy_fn=_policy,
+        )
 
     env.close()
     return rewards

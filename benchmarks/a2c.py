@@ -1,4 +1,5 @@
 from __future__ import annotations
+"""Advantage Actor-Critic (A2C) benchmark on CartPole-v1."""
 
 from dataclasses import dataclass
 
@@ -8,9 +9,13 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
+from benchmarks.common import record_policy_video
+
 
 @dataclass
 class A2CConfig:
+    """Configuration for A2C training."""
+
     env_name: str = "CartPole-v1"
     gamma: float = 0.99
     learning_rate: float = 1e-3
@@ -18,9 +23,14 @@ class A2CConfig:
     hidden_size: int = 128
     value_coef: float = 0.5
     entropy_coef: float = 0.01
+    record_video: bool = False
+    video_dir: str = "videos/a2c"
+    video_episodes: int = 3
 
 
 class ActorCritic(nn.Module):
+    """Shared-backbone actor-critic network."""
+
     def __init__(self, input_size: int, n_actions: int, hidden_size: int = 128):
         super().__init__()
         self.shared = nn.Sequential(
@@ -38,6 +48,8 @@ class ActorCritic(nn.Module):
 
 
 def run_a2c(config: A2CConfig | None = None) -> list[float]:
+    """Train an A2C agent and return per-episode rewards."""
+
     cfg = config or A2CConfig()
     print("\n--- Starting A2C ---")
 
@@ -104,6 +116,23 @@ def run_a2c(config: A2CConfig | None = None) -> list[float]:
         if (episode + 1) % 50 == 0:
             avg_reward = float(np.mean(episode_rewards[-50:]))
             print(f"Episode {episode + 1}, Average Reward (last 50): {avg_reward:.2f}")
+
+    if cfg.record_video:
+        net.eval()
+
+        def _policy(state: np.ndarray) -> int:
+            with torch.no_grad():
+                state_t = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
+                logits, _ = net(state_t)
+                return int(torch.argmax(logits, dim=1).item())
+
+        record_policy_video(
+            env_name=cfg.env_name,
+            video_dir=cfg.video_dir,
+            episodes=cfg.video_episodes,
+            name_prefix="a2c",
+            policy_fn=_policy,
+        )
 
     env.close()
     return episode_rewards

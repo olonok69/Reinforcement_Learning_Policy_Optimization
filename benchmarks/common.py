@@ -87,3 +87,49 @@ def save_results_csv(results: tt.Sequence[BenchmarkResult], output_path: str | P
         writer.writeheader()
         for result in results:
             writer.writerow(result.to_dict())
+
+
+def record_policy_video(
+    env_name: str,
+    video_dir: str,
+    episodes: int,
+    name_prefix: str,
+    policy_fn: tt.Callable[[np.ndarray], int],
+) -> None:
+    """Record evaluation episodes using a policy callback.
+
+    The callback receives a state array and must return a discrete action.
+    """
+    import gymnasium as gym
+    from gymnasium.wrappers import RecordVideo
+
+    Path(video_dir).mkdir(parents=True, exist_ok=True)
+    base_env = gym.make(env_name, render_mode="rgb_array")
+    try:
+        video_env = RecordVideo(
+            env=base_env,
+            video_folder=video_dir,
+            episode_trigger=lambda ep_idx: ep_idx < episodes,
+            name_prefix=name_prefix,
+        )
+    except Exception as exc:
+        base_env.close()
+        print(f"  Video recording unavailable: {exc}")
+        print("  Install dependency with: uv pip install moviepy")
+        return
+
+    try:
+        for i in range(episodes):
+            state, _ = video_env.reset()
+            done = False
+            ep_reward = 0.0
+            while not done:
+                action = int(policy_fn(np.asarray(state, dtype=np.float32)))
+                state, reward, terminated, truncated, _ = video_env.step(action)
+                done = terminated or truncated
+                ep_reward += float(reward)
+            print(f"  Video episode {i + 1}/{episodes}: reward = {ep_reward:.1f}")
+    finally:
+        video_env.close()
+
+    print(f"  Saved {episodes} video(s) to '{video_dir}'")
