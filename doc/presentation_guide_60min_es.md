@@ -440,6 +440,10 @@ Usar `G` desde timestep `t` en adelante (no desde el inicio del episodio). Reduc
 - Training loop (`run_policy_gradient`): Cada episodio: muestrear trayectoria → calcular returns → normalizar → calcular loss → backprop → step optimizer.
 - `PolicyGradientConfig`: `gamma=0.99, lr=1e-3, episodes=700, hidden_size=128, normalize_returns=True`
 
+### Walkthrough completo del script (línea por línea)
+- Documento explicativo detallado: [policy_gradient_line_by_line_es.md](policy_gradient_line_by_line_es.md)
+- Código fuente principal referenciado por el companion: [benchmarks/policy_gradient.py](../benchmarks/policy_gradient.py)
+
 ### Correspondencia teoría-código
 
 | Concepto teórico | Ubicación en código |
@@ -453,7 +457,172 @@ Usar `G` desde timestep `t` en adelante (no desde el inicio del episodio). Reduc
 
 ---
 
-## 14) Comandos de demo (Parte 1)
+## 14) Cómo la red neuronal aprende la policy en la práctica
+
+El proceso tiene **tres fases** que se repiten cada episodio:
+
+### Fase 1 — La red genera probabilidades
+
+Cuando la red recibe un estado (ej. en CartPole: posición del carro, velocidad, ángulo del palo, velocidad angular), produce **logits** — un número crudo por cada acción posible:
+
+```python
+logits = net(state_t)          # ej: tensor([0.3, -0.8])
+probs = torch.softmax(logits)  # ej: tensor([0.75, 0.25])
+```
+
+Los pesos internos de la red (`nn.Linear`) determinan qué logits salen. Al inicio los pesos son **aleatorios**, así que la red produce probabilidades casi iguales para ambas acciones — es como un agente que no sabe nada.
+
+### Fase 2 — El agente juega un episodio completo
+
+Con esas probabilidades, el agente **muestrea** acciones (no siempre elige la más probable — esto es clave para la exploración):
+
+```python
+dist = Categorical(probs)
+action = dist.sample()                        # muestrea según probabilidades
+log_probs.append(dist.log_prob(action))       # guarda log π(a|s) para después
+```
+
+### Fase 3 — El gradiente ajusta los pesos
+
+Después del episodio, se calculan los returns y se construye el loss:
+
+```python
+returns = _discounted_returns(rewards, gamma)
+returns_t = (returns_t - mean) / std           # normalizar
+
+loss = -(log_probs * returns_t).sum()          # policy loss
+loss.backward()                                # autograd calcula ∇
+optimizer.step()                               # ajusta los pesos
+```
+
+El producto `log_prob × return` le dice a cada peso de la red: "la acción que elegiste en ese estado llevó a un return de X". El gradiente empuja los pesos en la dirección que haría esa acción **más probable** si el return fue alto, o **menos probable** si fue bajo.
+
+### Evolución durante el entrenamiento
+
+```
+Episodio 1:    pesos aleatorios → acciones casi aleatorias → reward ~20
+Episodio 50:   pesos algo ajustados → algo mejores          → reward ~80
+Episodio 300:  pesos bien calibrados → casi siempre correcta → reward ~400
+Episodio 500:  pesos convergidos → policy casi óptima        → reward 500 (máx)
+```
+
+---
+
+## 15) ¿Se puede hacer SIN red neuronal?
+
+**Sí, absolutamente.** La red neuronal es solo una forma de representar `π(a|s)`. REINFORCE solo necesita: (1) una función `π(a|s)` diferenciable, y (2) poder calcular `log π(a|s)` y su gradiente.
+
+### Opción 1: Tabla softmax
+
+Si el espacio de estados es **discreto y pequeño**:
+
+```python
+# Para un entorno con 16 estados y 4 acciones:
+theta = np.zeros((16, 4))       # tabla de parámetros
+
+def policy(state):
+    logits = theta[state]                              # fila de la tabla
+    probs = np.exp(logits) / np.exp(logits).sum()      # softmax
+    return np.random.choice(4, p=probs)
+```
+
+### Opción 2: Función lineal (sin capas ocultas)
+
+```python
+W = np.random.randn(n_actions, obs_dim) * 0.01
+b = np.zeros(n_actions)
+
+def policy(state):
+    logits = W @ state + b
+    probs = softmax(logits)
+    return np.random.choice(n_actions, p=probs)
+```
+
+### ¿Por qué usamos red neuronal entonces?
+
+| Representación | Ventaja | Limitación |
+|---------------|---------|-----------|
+| Tabla | Exacta, simple | Solo estados discretos y pocos. CartPole tiene estados continuos → imposible |
+| Lineal | Rápida, pocos parámetros | No captura relaciones no lineales |
+| Red neuronal | Aproxima cualquier función, estados continuos | Más parámetros, más lento, necesita tuning |
+
+CartPole tiene **estados continuos** (ángulo, velocidad son números reales, no categorías), así que la tabla directa no funciona — no puedes tener una fila para cada posible valor de 0.0347° del ángulo. La red neuronal **generaliza**: si aprendió que "ángulo negativo → empujar izquierda", aplica eso para ángulos negativos que nunca vio antes.
+
+**Punto clave:** El **algoritmo** (REINFORCE, A2C, PPO) es independiente de **cómo representas la policy**. Redes neuronales, tablas y funciones lineales son intercambiables — solo cambia la capacidad de representación.
+
+---
+
+## 16) Exploración-explotación: Q-Learning vs Policy Gradients
+
+### Q-Learning: exploración explícita (externa)
+
+```python
+if random.random() < epsilon:
+    action = env.action_space.sample()    # explorar: acción aleatoria
+else:
+    action = np.argmax(Q[state])          # explotar: mejor acción conocida
+```
+
+Exploración es un coin flip **completamente separado** de los Q-values. Necesita un schedule manual de `ε` (1.0 → 0.01).
+
+### REINFORCE: exploración implícita (intrínseca)
+
+```python
+probs = softmax(net(state))
+action = Categorical(probs).sample()      # ← AQUÍ ocurre la exploración
+```
+
+Si la red produce `probs = [0.7, 0.3]`, el 30% de las veces prueba la acción menos favorecida — **eso es la exploración**, embebida en la policy misma.
+
+### Cómo evoluciona la exploración durante el entrenamiento
+
+```
+Episodio 1:    probs ≈ [0.52, 0.48]   → casi aleatorio (mucha exploración)
+Episodio 100:  probs ≈ [0.70, 0.30]   → prefiere una pero todavía prueba
+Episodio 300:  probs ≈ [0.85, 0.15]   → bastante segura
+Episodio 600:  probs ≈ [0.95, 0.05]   → casi siempre explota la mejor
+```
+
+La red se **auto-regula**: no necesitas un schedule de ε.
+
+### Riesgo: colapso determinista prematuro
+
+Si la red se vuelve demasiado segura demasiado pronto (`[0.99, 0.01]` antes de explorar suficiente), deja de probar alternativas. REINFORCE básico **no tiene protección** contra esto.
+
+A2C y PPO lo solucionan con un **bonus de entropía**:
+
+```python
+# benchmarks/a2c.py y benchmarks/ppo.py
+entropy = dist.entropy().mean()
+loss = policy_loss + value_coef * value_loss - entropy_coef * entropy
+#                                              ^^^^^^^^^^^^^^^^^^^^^^^^
+#                              PENALIZA probabilidades muy concentradas
+```
+
+La entropía mide qué tan "dispersa" está la distribución:
+
+```
+probs = [0.50, 0.50]  →  entropía = 0.69  (máxima — totalmente aleatorio)
+probs = [0.80, 0.20]  →  entropía = 0.50  (algo concentrada)
+probs = [0.99, 0.01]  →  entropía = 0.06  (casi determinista)
+```
+
+El signo menos convierte la entropía en recompensa: "te premio un poquito por mantener algo de incertidumbre".
+
+### Resumen comparativo
+
+| Aspecto | Q-Learning / DQN | REINFORCE | A2C / PPO |
+|---------|------------------|-----------|-----------|
+| Mecanismo | ε-greedy (externo) | Muestreo estocástico (intrínseco) | Muestreo + bonus de entropía |
+| Controlado por | `ε` (schedule manual) | Pesos de la red (automático) | Pesos + `entropy_coef` |
+| Al inicio | `ε=1.0` → aleatorio | Pesos aleatorios → probs ≈ uniformes | Igual + entropía alta premiada |
+| Al final | `ε=0.01` → casi greedy | Probs concentradas → casi greedy | Concentradas pero no colapsadas |
+| Riesgo | ε baja muy rápido | Colapso determinista prematuro | Bajo (entropía lo previene) |
+| Schedule necesario | Sí | No | No |
+
+---
+
+## 17) Comandos de demo (Parte 1)
 
 ### Setup
 ```bash
@@ -482,7 +651,7 @@ uv run python run_all_comparison.py --methods policy_gradient --policy-gradient-
 
 ---
 
-## 15) Notas didácticas para audiencia low-level
+## 18) Notas didácticas para audiencia low-level
 
 Secuencia sugerida en slides/pizarra:
 
@@ -495,16 +664,21 @@ Secuencia sugerida en slides/pizarra:
 7. Recorrer las cuatro variantes: REINFORCE → reward-to-go → baseline → ventaja.
 8. Aclarar trade-off Monte Carlo: simple + insesgado, pero ruidoso.
 9. Conectar con RLHF: "PPO usa la variante basada en ventaja + clipping".
+10. Explicar las 3 fases del aprendizaje de la red: generar probs → jugar episodio → gradiente ajusta pesos.
+11. Mostrar que la red no es obligatoria: tabla softmax y función lineal también funcionan, pero la red generaliza a estados continuos.
+12. Comparar exploración: Q-learning usa ε-greedy (externo), REINFORCE usa muestreo estocástico (intrínseco), A2C/PPO agregan entropía.
 
 **Confusiones comunes a resolver explícitamente:**
 - "¿Esto es supervised learning?" → No; no hay labels, hay rewards diferidas del entorno.
 - "¿Por qué no elegir siempre argmax?" → La estocasticidad ayuda exploración y aprendizaje por gradiente.
 - "¿Por qué normalizar returns?" → Para estabilizar magnitud de updates. Funciona como baseline simple.
 - "¿Cuál es la diferencia entre G y A?" → G es return crudo, A es return menos baseline (cuánto mejor que lo esperado).
+- "¿Cómo explora si no hay epsilon?" → La policy ES una distribución de probabilidad; muestrear de ella genera exploración natural.
+- "¿Se necesita siempre una red neuronal?" → No; cualquier función diferenciable sirve. La red es necesaria cuando los estados son continuos.
 
 ---
 
-## 16) Puente a Parte 2
+## 19) Puente a Parte 2
 
 Parte 2 responde la siguiente pregunta natural tras REINFORCE:
 - ¿Cómo reducir varianza y mejorar estabilidad/rendimiento?

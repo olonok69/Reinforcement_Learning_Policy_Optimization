@@ -10,6 +10,8 @@ This folder contains detailed notes for every benchmark method implemented in th
 ## Per-algorithm docs
 - `presentation_guide_60min.md` (Part 1: detailed policy optimization + Monte Carlo + REINFORCE)
 - `presentation_guide_part2_60min.md` (Part 2: A2C, A3C, PPO, TRPO)
+- `policy_gradient_line_by_line.md` (deep line-by-line walkthrough of `benchmarks/policy_gradient.py`)
+- `policy_gradient_line_by_line_es.md` (Spanish line-by-line companion)
 - `03_policy_gradient.md`
 - `04_a2c.md`
 - `05_a3c.md`
