@@ -1,213 +1,504 @@
-# RL Algorithm Explanations (Code-Referenced)
+# RL Policy Optimization — Presentation Guide Part 1 (60 minutes)
 
-This document explains, in a practical way, how the demos in this repository work and how they map to core Reinforcement Learning theory:
+## Scope of Part 1
+This first session is intentionally detailed for a beginner audience.
 
-- Tabular Q-learning on FrozenLake
-- REINFORCE (policy gradient) on CartPole
-- PPO on CartPole with Stable-Baselines3
+It covers:
+- RL foundations needed before policy optimization
+- Why Monte Carlo appears in REINFORCE
+- Policy gradient theorem intuition and derivation roadmap
+- Value functions, advantage function, and their role in variance reduction
+- Policy gradient variants (reward-to-go, baseline, vanilla PG)
+- REINFORCE end-to-end (math + code mapping)
+- Connection to RLHF and modern LLM finetuning (PPO)
+- How to run and explain the repository code for REINFORCE
 
-The goal is to help you move from theory to implementation.
+It does **not** cover A2C/A3C/PPO/TRPO in depth. That is in Part 2.
 
 **Key reference**: [Cameron R. Wolfe — Policy Gradients: The Foundation of RLHF](https://cameronrwolfe.substack.com/p/policy-gradients-the-foundation-of)
 
 ---
 
-## 0) 60-minute teaching plan (approx.)
-
-- **0-8 min**: RL fundamentals (agent, environment, state, action, reward, policy).
-- **8-15 min**: Model-free vs model-based RL.
-- **15-30 min**: Q-learning (idea + code mapping).
-- **30-45 min**: REINFORCE (idea + code mapping).
-- **45-55 min**: PPO in practice with Stable-Baselines3.
-- **55-60 min**: Wrap-up: model vs policy vs value function.
-
----
-
-## 1) RL foundations
-
-Core components:
-
-- **Agent**: the learner and decision-maker.
-- **Environment**: the system the agent interacts with.
-- **State** `s`: the current situation.
-- **Action** `a`: a possible decision.
-- **Reward** `r`: a feedback signal.
-- **Policy** `π`: a rule for choosing actions.
-
-General objective:
-
-- Maximize expected cumulative discounted return.
+## 1) Session objective
+By the end of this Part 1 talk, the audience should be able to explain:
+- What a policy is and why we optimize it directly
+- What return means in episodic tasks
+- Why Monte Carlo returns are unbiased but high variance
+- How the log-derivative trick makes policy gradients computable
+- How REINFORCE updates policy parameters
+- What the advantage function is and why it matters for A2C/PPO
+- How the four policy-gradient variants progressively reduce variance
+- How theory maps to repository code
+- Why policy gradients are the foundation of RLHF for LLMs
 
 ---
 
-## 2) Model-free vs model-based RL
+## 2) Suggested 60-minute agenda
 
-- **Model-based RL**: uses/learns transition and reward dynamics for planning.
-- **Model-free RL**: learns directly from experience without an explicit environment model.
-
-This repository focuses on **model-free** methods for teaching clarity:
-
-- Q-learning (value-based, tabular in this project).
-- REINFORCE and PPO (policy optimization methods).
+- **0–8 min**: problem framing + what this app does
+- **8–18 min**: RL fundamentals (MDP, trajectory, return)
+- **18–28 min**: policy optimization objective + log-derivative trick
+- **28–38 min**: policy gradient theorem + value/advantage functions
+- **38–48 min**: detailed REINFORCE walkthrough + policy-gradient variants
+- **48–55 min**: live run (single method + compare mode)
+- **55–60 min**: Q&A + transition to Part 2
 
 ---
 
-## 3) Q-learning
+## 3) What this application is
 
-Main file: `demos/q_learning_frozenlake.py`
+This repository is a benchmarking app for policy-optimization methods on `CartPole-v1`.
 
-### 3.1 Intuition
+### Core capabilities
+- Standalone scripts per algorithm
+- Unified orchestrator for algorithm comparison
+- Standardized metrics and reproducible outputs
+- Multi-run aggregation and report generation
 
-Q-learning learns `Q(s,a)`, which estimates how good each action is in each state. The policy is derived with `argmax`.
+### Entry points
+- Unified orchestrator: [run_all_comparison.py](../run_all_comparison.py)
+- Standalone REINFORCE runner: [policy_gradient_benchmark.py](../policy_gradient_benchmark.py)
 
-### 3.2 Update rule
+### Core REINFORCE module for this session
+- [benchmarks/policy_gradient.py](../benchmarks/policy_gradient.py)
+
+---
+
+## 4) RL foundations (beginner-first)
+
+### 4.1 MDP building blocks
+An RL task is often modeled as a Markov Decision Process (MDP):
+- **state** `sₜ` — what the agent observes
+- **action** `aₜ` — what the agent does
+- **reward** `rₜ` — immediate environment feedback
+- **transition dynamics** `P(sₜ₊₁ | sₜ, aₜ)` — how the world changes
+- **discount factor** `γ ∈ [0, 1]` — future-vs-immediate reward preference
+
+### 4.2 Trajectory and return
+One episode (trajectory) is:
 
 ```
-Q(s,a)  ←  Q(s,a) + α · [ r + γ · max_a' Q(s',a') - Q(s,a) ]
+τ = (s₀, a₀, r₀, s₁, a₁, r₁, ...)
 ```
 
-Where:
+Discounted return from time `t`:
 
-- `α`: learning rate
-- `γ`: discount factor
-- `r + γ · max Q(s',a')`: the Bellman target (what Q *should* be)
-- `r + γ · max Q(s',a') - Q(s,a)`: the TD error (how wrong we were)
+```
+Gₜ = rₜ + γ · rₜ₊₁ + γ² · rₜ₊₂ + ...
+   = Σₖ γᵏ · rₜ₊ₖ
+```
 
-### 3.3 What the script does
+Low-level intuition:
+- Immediate rewards matter more when `γ < 1`.
+- Return is the training signal indicating trajectory quality.
 
-- Initializes the **Q-table** (all zeros).
-- Selects actions using **epsilon-greedy** exploration.
-- Updates values with TD/Bellman targets.
-- Decays `epsilon` over time (less exploration, more exploitation).
-- Evaluates the final greedy policy and reports success rate.
+Two return forms (from Wolfe):
+- **Finite-horizon undiscounted**: sum of rewards in fixed-length episodes
+- **Infinite-horizon discounted**: discounted sum with `γ` for convergence
 
-### 3.4 Code blocks to locate
+### 4.3 Why stochastic policies?
+In policy optimization we model:
 
-- Action selection: `epsilon_greedy_action(...)`
-- Training loop: `train(...)`
-- Final evaluation: `evaluate_policy(...)`
+```
+πθ(a | s)  =  P(action = a | state = s)
+```
 
-### 3.5 Exploration in Q-learning: epsilon-greedy
+as a probability distribution over actions. This supports:
+- exploration during training
+- smooth gradients for optimization
+- preference learning (not only hard action selection)
 
-Q-learning uses an **explicit, external** exploration strategy:
+---
+
+## 5) Value-Based vs Policy-Based
+
+Two fundamentally different RL approaches:
+
+| Aspect | Value-Based (DQN) | Policy-Based (This Series) |
+|---------|-------------------|----------------------------|
+| Strategy | Learn Q(s,a), choose argmax | Optimize π(a\|s) directly |
+| Policy | Implicit (derived from Q) | Explicit (network outputs probabilities) |
+| Actions | Primarily discrete | Discrete and continuous |
+| Foundation | Bellman equation | Policy gradient theorem |
+| Used in RLHF | No | Yes — PPO is policy optimization |
+
+**Beginner analogy**:
+- Value-based: score every menu dish, then pick top-scored
+- Policy-based: learn your taste directly, without scoring all dishes
+
+---
+
+## 6) Policy optimization from first principles
+
+### 6.1 Objective
+We maximize expected trajectory return:
+
+```
+J(θ) = E_τ~πθ [ R(τ) ]
+```
+
+### 6.2 Gradient ascent
+To maximize `J(θ)`, we use gradient ascent:
+
+```
+θ  ←  θ + α · ∇θ J(θ)
+```
+
+Each step:
+1. Compute objective gradient wrt current parameters
+2. Scale by learning rate `α`
+3. Move parameters uphill (add, not subtract)
+
+### 6.3 The hard part
+Computing `∇J(θ)` is difficult because it includes `P(τ|θ)` (trajectory probability), which depends on unknown environment dynamics.
+
+**Solution**: log-derivative trick.
+
+---
+
+## 7) The log-derivative trick (step by step)
+
+### Step 1: The problem
+
+```
+∇J(θ) = ∇ Σ P(τ|θ) · R(τ)
+```
+
+But `P(τ|θ)` includes unknown environment dynamics.
+
+### Step 2: Calculus identity
+
+```
+∇ log f(x)  =  ∇f(x) / f(x)
+```
+
+Rearranged:
+
+```
+∇f(x)  =  f(x) · ∇ log f(x)
+```
+
+### Step 3: Apply to ∇P(τ|θ)
+
+```
+∇P(τ|θ)  =  P(τ|θ) · ∇log P(τ|θ)
+```
+
+Now `P(τ|θ)` becomes a multiplier and the sum becomes an expectation we can sample.
+
+### Step 4: Environment terms cancel
+Trajectory probability factorization:
+
+```
+P(τ|θ) = P(s₀) · Π πθ(aₜ|sₜ) · P(sₜ₊₁|sₜ,aₜ)
+```
+
+After log:
+
+```
+log P(τ|θ) = log P(s₀) + Σ log πθ(aₜ|sₜ) + Σ log P(sₜ₊₁|sₜ,aₜ)
+```
+
+Taking `∇` wrt `θ`, only `πθ(a|s)` depends on `θ`; environment terms vanish.
+
+### Step 5: Final form
+
+```
+∇J(θ) = E[ Σₜ ∇log πθ(aₜ|sₜ) · Gₜ ]
+```
+
+We only need:
+1. Gradient of log-policy (from neural network/autograd)
+2. Returns from sampled episodes
+
+So this is model-free RL.
+
+---
+
+## 8) Policy gradient theorem — core equation
+
+### Practical estimator
+
+```
+∇J(θ)  ≈  (1/N) Σᵢ [ Σₜ ∇log πθ(aₜ|sₜ) · Gₜ ]
+```
+
+### Term-by-term meaning
+
+| Term | Meaning |
+|------|---------|
+| `∇log π(a\|s)` | direction to increase probability of chosen action in current state |
+| `Gₜ` | quality of sampled outcome from that timestep |
+| Product | good outcomes reinforce their actions, poor outcomes suppress them |
+| `(1/N) Σ` | average over sampled trajectories |
+
+### Intuition
+- High-return actions become more probable
+- Low-return actions become less probable
+- Gradient points toward policies that make good trajectories more likely
+
+That is why the algorithm is called **REINFORCE**.
+
+### PyTorch form
 
 ```python
-if random.random() < epsilon:
-    action = env.action_space.sample()    # explore: random action
-else:
-    action = np.argmax(Q[state])          # exploit: best known action
+loss = -(log_probs * returns).sum()
+loss.backward()       # autograd computes gradients
+optimizer.step()      # minus sign turns descent into ascent objective
 ```
-
-Epsilon follows a **manual schedule**:
-- Start: `ε = 1.0` → purely random
-- Decay: `ε *= decay_rate` each episode
-- End: `ε = 0.01` → almost purely greedy
-
-The exploration mechanism is **completely separate** from the Q-values. Even if Q says "left is clearly better", the epsilon coin flip can still force a random action. This ensures every action keeps getting tried.
 
 ---
 
-## 4) REINFORCE (policy gradient)
+## 9) Value functions and advantage
 
-Main file: `demos/reinforce_cartpole.py`
+### Four value functions (Wolfe)
 
-### 4.1 Intuition
+| Function | Name | Meaning |
+|----------|------|---------|
+| `Vπ(s)` | State value | expected return from state `s` under policy `π` |
+| `Qπ(s,a)` | Action value | expected return from taking `a` in `s`, then following `π` |
+| `V*(s)` | Optimal state value | state value under best possible policy |
+| `Q*(s,a)` | Optimal action value | action value under best policy; this is what DQN targets |
 
-REINFORCE learns a stochastic policy `πθ(a|s)` directly (not a Q-table). The policy is a neural network that outputs **probabilities** over actions.
-
-### 4.2 Objective (common form)
+### Advantage function
 
 ```
-L(θ) = -Σₜ log πθ(aₜ|sₜ) · Gₜ
+A(s,a)  =  Q(s,a) - V(s)
 ```
 
-where `Gₜ` is the discounted return from step `t`.
+“How much better is action `a` than the average action at state `s`?”
 
-### 4.3 What the script does
+- `A > 0`: better-than-average action
+- `A < 0`: worse-than-average action
 
-- Defines a policy network (`PolicyNetwork`) with `softmax` output.
-- Samples actions from `Categorical(probs)`.
-- Stores log-probabilities and rewards for each episode.
-- Computes returns with `discounted_returns(...)`.
-- Normalizes returns for more stable training.
-- Optimizes with backpropagation and `optimizer.step()`.
+### Why advantage matters
+Using raw `G` is noisy because all actions share full-episode credit.
+Using `A` reinforces only above-expected actions, reducing variance.
 
-### 4.4 Code blocks to locate
+### Vanilla policy gradient (advantage form)
 
-- Policy model: `PolicyNetwork`
-- Discounted returns: `discounted_returns(...)`
-- Training loop: `train(...)`
+```
+∇J(θ) = E[ ∇log π(a|s) · A(s,a) ]
+```
 
-### 4.5 How the neural network actually learns the policy
+This is what A2C/PPO optimize in practice.
 
-The process has **three phases** repeated every episode:
+### RLHF connection
+PPO (used in ChatGPT RL phase) is advantage-based policy optimization with clipping and GAE.
 
-**Phase 1 — The network generates probabilities**
+**Evolution**: `REINFORCE → + baseline V(s) → advantage → A2C → PPO`
 
-When the network receives a state (e.g. in CartPole: cart position, velocity, pole angle, angular velocity), it produces **logits** — a raw number per action:
+### Code mapping
 
 ```python
-logits = net(state_t)          # e.g. tensor([0.3, -0.8])
-probs = torch.softmax(logits)  # e.g. tensor([0.75, 0.25])
+# benchmarks/a2c.py
+advantage = returns - value_net(states)
+policy_loss = -(log_probs * advantage)
 ```
 
-The internal weights of `nn.Linear` layers determine which logits come out. At the start, weights are **random**, so the network produces nearly equal probabilities — like an agent that knows nothing.
+---
 
-**Phase 2 — The agent plays a full episode**
+## 10) Policy gradient variants — progressive variance reduction
 
-With those probabilities, the agent **samples** actions (it doesn't always pick the most probable — this is key for exploration):
+### Variant 1: Basic REINFORCE
+
+```
+∇J = E[ Σₜ ∇log π(a|s) · R(τ) ]
+```
+
+Weight = full trajectory return. High variance.
+
+### Variant 2: Reward-to-Go
+
+```
+∇J = E[ Σₜ ∇log π(aₜ|sₜ) · Gₜ ]
+```
+
+Weight = return from timestep `t` onward only. Lower variance.
+
+> Implemented in `benchmarks/policy_gradient.py` via `_discounted_returns()`.
+
+### Variant 3: Baseline subtraction
+
+```
+∇J = E[ Σₜ ∇log π · (Gₜ - b(s)) ]
+```
+
+Common baseline: `b(s)=V(s)`.
+
+### Variant 4: Advantage form
+
+```
+∇J = E[ Σₜ ∇log π · Aπ(s,a) ]
+```
+
+Lowest variance among these variants.
+
+> Implemented in `benchmarks/a2c.py` and `benchmarks/ppo.py`.
+
+Key insight: same expected gradient target, different variance.
+
+```
+Lower variance → fewer episodes → faster convergence → more stable training
+```
+
+### GAE
+GAE blends multi-step TD estimates with `λ` to trade off bias and variance. PPO uses GAE by default.
+
+---
+
+## 11) Monte Carlo in REINFORCE
+
+### Meaning
+REINFORCE waits until episode end, then computes full discounted returns from sampled rewards.
+No bootstrap value target in base form.
+
+### Why useful
+- Unbiased return estimate for sampled policy
+- Simple implementation
+
+### Why hard
+- High-variance updates
+- Can be unstable/slower
+
+### Numeric example
+Rewards `[1,1,1]`, `γ=0.9`:
+
+```
+G₀ = 1 + 0.9×1 + 0.9²×1  = 2.71
+G₁ = 1 + 0.9×1            = 1.90
+G₂ = 1                    = 1.00
+```
+
+Earlier actions receive larger weight due to longer future influence.
+
+### Return normalization
+
+```python
+G_norm = (G - mean(G)) / std(G)
+```
+
+Stabilizes gradient scale and acts as a simple baseline approximation.
+
+### Reward-to-go trick
+Use future-only rewards from each timestep (`G_t`), not episode-start total.
+Reduces variance without bias.
+
+---
+
+## 12) REINFORCE algorithm (step-by-step)
+
+```
+1. Reset environment and sample one episode from current policy
+2. Store log π(aₜ|sₜ) and reward rₜ at each step
+3. At episode end compute discounted returns:
+       Gₜ = rₜ + γ · Gₜ₊₁     (backward pass)
+4. Optional return normalization:
+       G = (G - mean) / std
+5. Compute policy loss:
+       L = -Σₜ log π(aₜ|sₜ) · Gₜ
+6. Backprop and Adam update:
+       loss.backward()
+       optimizer.step()
+7. Repeat for many episodes
+```
+
+Why minus sign? PyTorch optimizer does gradient descent by default; we need ascent on return.
+
+---
+
+## 13) Code mapping for Part 1
+
+### REINFORCE implementation
+- Config/dataclass: [benchmarks/policy_gradient.py](../benchmarks/policy_gradient.py)
+- Policy network (`PolicyNetwork`): 2-layer MLP (128 hidden units, ReLU), logits output
+- Returns helper (`_discounted_returns`): backward `G = r + γ*G_next` reward-to-go
+- Training loop (`run_policy_gradient`): trajectory sampling → returns → normalization → loss → backprop → optimizer step
+- `PolicyGradientConfig`: `gamma=0.99, lr=1e-3, episodes=700, hidden_size=128, normalize_returns=True`
+
+### Full script walkthrough (line-by-line)
+- Detailed companion: [policy_gradient_line_by_line.md](policy_gradient_line_by_line.md)
+- Source code: [benchmarks/policy_gradient.py](../benchmarks/policy_gradient.py)
+
+### Theory-to-code correspondence
+
+| Theory concept | Code location |
+|----------------|---------------|
+| `πθ(a\|s)` stochastic policy | `PolicyNetwork.forward()` → `Categorical(logits)` |
+| `log π(a\|s)` | `dist.log_prob(action)` |
+| `Gₜ` reward-to-go | `_discounted_returns()` |
+| Baseline approximation | return normalization `(returns - mean) / std` |
+| `L = -Σ log π · G` | `-(log_probs * returns).sum()` |
+| `∇θ` autograd update | `loss.backward(); optimizer.step()` |
+
+---
+
+## 14) How the neural network learns policy in practice
+
+Three phases repeated each episode:
+
+### Phase 1 — Network outputs action probabilities
+
+```python
+logits = net(state_t)          # e.g., tensor([0.3, -0.8])
+probs = torch.softmax(logits)  # e.g., tensor([0.75, 0.25])
+```
+
+At the beginning, random weights produce near-uniform probabilities.
+
+### Phase 2 — Agent plays one full episode
 
 ```python
 dist = Categorical(probs)
-action = dist.sample()                        # sample according to probs
-log_probs.append(dist.log_prob(action))       # save log π(a|s) for later
+action = dist.sample()
+log_probs.append(dist.log_prob(action))
 ```
 
-**Phase 3 — The gradient adjusts the weights**
+Sampling (not hard argmax) provides intrinsic exploration.
 
-After the episode ends, returns are computed and the loss is built:
+### Phase 3 — Gradient updates weights
 
 ```python
 returns = _discounted_returns(rewards, gamma)
-returns_t = (returns_t - mean) / std           # normalize
+returns_t = (returns_t - mean) / std
 
-loss = -(log_probs * returns_t).sum()          # policy loss
-loss.backward()                                # autograd computes ∇
-optimizer.step()                               # adjust weights
+loss = -(log_probs * returns_t).sum()
+loss.backward()
+optimizer.step()
 ```
 
-The product `log_prob × return` tells each network weight: "the action you chose in that state led to a return of X". The gradient pushes the weights in the direction that would make that action **more probable** if the return was high, or **less probable** if the return was low.
+`log_prob × return` tells the network whether sampled actions should become more or less likely.
 
-**The complete cycle across training:**
+### Typical learning trajectory
 
 ```
-Episode 1:    random weights → near-random actions    → reward ~20
-Episode 50:   slightly tuned → somewhat better        → reward ~80
-Episode 300:  well calibrated → mostly correct actions → reward ~400
-Episode 500:  converged → near-optimal policy          → reward 500 (max)
+Episode 1:    random weights → near-random actions     → reward ~20
+Episode 50:   partially tuned → somewhat better         → reward ~80
+Episode 300:  better calibrated → mostly correct actions → reward ~400
+Episode 500:  converged → near-optimal policy           → reward 500
 ```
 
-### 4.6 Can we do this WITHOUT a neural network?
+---
 
-**Yes, absolutely.** The neural network is just one way to represent `π(a|s)`. Alternatives:
+## 15) Can we do this without a neural network?
 
-**Option 1: Direct table (softmax tabular)**
+Yes. REINFORCE only requires:
+1. A differentiable policy representation `π(a|s)`
+2. Ability to compute `log π(a|s)` and gradients
 
-If the state space is **discrete and small**, you can use a parameter table:
+### Option 1: Softmax table
+For small discrete state spaces:
 
 ```python
-# For an environment with 16 states and 4 actions:
-theta = np.zeros((16, 4))       # parameter table
+theta = np.zeros((16, 4))
 
 def policy(state):
-    logits = theta[state]                              # row from table
-    probs = np.exp(logits) / np.exp(logits).sum()      # softmax
+    logits = theta[state]
+    probs = np.exp(logits) / np.exp(logits).sum()
     return np.random.choice(4, p=probs)
 ```
 
-The update is identical in spirit: `θ[s,a] += α · Gₜ · (1 - π(a|s))`. REINFORCE works exactly the same — you just adjust table entries instead of `nn.Linear` weights.
-
-**Option 2: Linear function (no hidden layers)**
+### Option 2: Linear policy (no hidden layers)
 
 ```python
 W = np.random.randn(n_actions, obs_dim) * 0.01
@@ -219,317 +510,136 @@ def policy(state):
     return np.random.choice(n_actions, p=probs)
 ```
 
-Equivalent to a single-layer network without activation. Works for simple problems but can't capture non-linear patterns.
-
-**Why use a neural network then?**
+### Why neural network here?
 
 | Representation | Advantage | Limitation |
-|---------------|-----------|-----------|
-| Table | Exact, simple | Only discrete and few states. CartPole has continuous states → impossible |
-| Linear | Fast, few parameters | Cannot capture non-linear state-action relationships |
-| Neural network | Approximates any function, handles continuous states | More parameters, slower, needs hyperparameter tuning |
+|----------------|-----------|------------|
+| Table | Exact and simple | Only small discrete state spaces |
+| Linear | Fast and compact | Cannot capture nonlinear patterns |
+| Neural network | Strong function approximation for continuous states | More tuning/compute |
 
-CartPole has **continuous states** (angle, velocity are real numbers, not categories), so a direct table doesn't work — you can't have a row for every possible value of 0.0347° angle. The neural network **generalizes**: if it learned "negative angle → push left", it applies that to negative angles it has never seen before.
+CartPole states are continuous, so tabular representation is impractical. Neural networks generalize to unseen continuous states.
 
-**The key point:** The **algorithm** (REINFORCE, A2C, PPO) is independent of **how you represent the policy**. What you need is: (1) a differentiable function `π(a|s)`, and (2) the ability to compute `log π(a|s)` and its gradient. Neural networks, tables, and linear functions all satisfy this.
+---
 
-### 4.7 Exploration-exploitation in policy gradients
+## 16) Exploration vs exploitation: Q-learning vs policy gradients
 
-This is one of the most important differences from Q-learning. In REINFORCE, exploration is **intrinsic** — built into the policy itself, not added externally.
-
-**How it works:**
+### Q-learning: explicit external exploration
 
 ```python
-probs = torch.softmax(logits, dim=1)       # network outputs probabilities
-dist = torch.distributions.Categorical(probs)
-action = dist.sample()                      # ← exploration happens HERE
+if random.random() < epsilon:
+    action = env.action_space.sample()
+else:
+    action = np.argmax(Q[state])
 ```
 
-If the network produces `probs = [0.7, 0.3]`, `dist.sample()` picks "left" 70% of the time and "right" 30%. That 30% **is** the exploration — the agent tries the less-favored action naturally.
+Requires manual epsilon schedule.
 
-**How exploration evolves during training:**
-
-```
-Episode 1:    probs ≈ [0.52, 0.48]   → nearly random (lots of exploration)
-Episode 100:  probs ≈ [0.70, 0.30]   → prefers one action but still tries both
-Episode 300:  probs ≈ [0.85, 0.15]   → fairly confident but not 100%
-Episode 600:  probs ≈ [0.95, 0.05]   → almost always exploits the best action
-```
-
-The network **self-regulates**: early on, random weights produce similar logits → similar probabilities → lots of exploration. As the gradient reinforces good actions, probabilities concentrate → more exploitation. **No epsilon schedule needed.**
-
-**Risk: premature deterministic collapse**
-
-If the network becomes too confident too early (e.g. `[0.99, 0.01]` before exploring enough), it stops trying the other action and may get stuck in a suboptimal solution.
-
-Basic REINFORCE has **no protection** against this. But A2C and PPO add an **entropy bonus**:
+### REINFORCE: intrinsic exploration
 
 ```python
-# benchmarks/a2c.py and benchmarks/ppo.py
+probs = softmax(net(state))
+action = Categorical(probs).sample()
+```
+
+Exploration is built into stochastic policy sampling.
+
+### Typical evolution
+
+```
+Episode 1:    probs ≈ [0.52, 0.48]   → high exploration
+Episode 100:  probs ≈ [0.70, 0.30]   → moderate exploration
+Episode 300:  probs ≈ [0.85, 0.15]   → stronger exploitation
+Episode 600:  probs ≈ [0.95, 0.05]   → near-greedy behavior
+```
+
+### Risk: premature deterministic collapse
+If probabilities collapse too early (`[0.99, 0.01]`), exploration disappears.
+A2C/PPO counter this with entropy bonus:
+
+```python
 entropy = dist.entropy().mean()
 loss = policy_loss + value_coef * value_loss - entropy_coef * entropy
-#                                              ^^^^^^^^^^^^^^^^^^^^^^^^
-#                              this PENALIZES overly concentrated probabilities
 ```
 
-Entropy measures how "spread out" a distribution is:
-
-```
-probs = [0.50, 0.50]  →  entropy = 0.69  (maximum — fully random)
-probs = [0.80, 0.20]  →  entropy = 0.50  (somewhat concentrated)
-probs = [0.99, 0.01]  →  entropy = 0.06  (nearly deterministic)
-```
-
-By subtracting `entropy_coef × entropy` from the loss (the minus sign turns it into a reward), the optimizer **resists** probability collapse. It's like telling the network "I reward you a little for keeping some uncertainty".
-
----
-
-## 5) PPO in practice
-
-Main file: `demos/gymnasium_ppo_cartpole.py`
-
-### 5.1 Intuition
-
-PPO (Proximal Policy Optimization) is a modern policy optimization method that is typically more stable than vanilla policy gradients. It builds directly on the advantage-based policy gradient by adding **clipped updates** that prevent destructive large policy changes.
-
-### 5.2 Core idea — clipped surrogate objective
-
-```
-L_clip(θ) = E[ min( rₜ(θ) · Aₜ ,  clip(rₜ(θ), 1-ε, 1+ε) · Aₜ ) ]
-
-where  rₜ(θ) = πθ(aₜ|sₜ) / πθ_old(aₜ|sₜ)    (probability ratio)
-```
-
-If the new policy changes action probability too much, clipping truncates the incentive to keep pushing. This creates a soft "trust region" without solving constrained optimization.
-
-### 5.3 What the script does
-
-- Creates `CartPole-v1` with monitoring.
-- Instantiates `PPO` (`MlpPolicy`) with CLI hyperparameters.
-- Trains with `model.learn(total_timesteps=...)`.
-- Saves the trained model under `models/`.
-- Evaluates deterministic policy performance and reports metrics.
-
-### 5.4 Visual verification and recording
-
-- Human render: `--render-eval --render-episodes N`
-- Evaluation video: `--record-video --video-episodes N --video-dir <path>`
-- Combined mode: `--record-and-render`
-
-### 5.5 PPO exploration
-
-PPO uses the same **intrinsic stochastic exploration** as REINFORCE (sampling from `Categorical(probs)`) plus an **entropy bonus** (`entropy_coef = 0.01` by default) that actively prevents the policy from becoming too deterministic too early. Additionally, PPO estimates advantages using **GAE** (Generalized Advantage Estimation, λ=0.95), which blends multi-step TD estimates to balance bias and variance — giving cleaner signal than raw Monte Carlo returns.
-
----
-
-## 6) Value functions and the advantage function
-
-### Four value functions
-
-| Function | Name | Meaning |
-|----------|------|---------|
-| `Vπ(s)` | State value | Expected return from state `s`, following policy `π`. "How good is it to be here?" |
-| `Qπ(s,a)` | Action value | Expected return from `s`, taking action `a`, then following `π`. "How good is this specific action?" |
-| `V*(s)` | Optimal state value | Same but assuming the best possible policy |
-| `Q*(s,a)` | Optimal action value | Same with optimal policy. **This is what DQN learns.** |
-
-### The advantage function
-
-```
-A(s,a) = Q(s,a) - V(s)
-```
-
-"How much **better** is action `a` compared to the **average** action in state `s`?"
-
-- `A > 0` → better than average → reinforce this action
-- `A < 0` → worse than average → discourage this action
-
-### Why advantage matters
-
-REINFORCE uses raw return `G` as weight — noisy because **all** actions get credit for the total episode outcome. Using advantage instead: only actions that performed **better than expected** get positively reinforced. This dramatically reduces gradient variance.
-
-### Code mapping
-
-```python
-# benchmarks/a2c.py — the advantage computation
-advantage = returns - value_net(states)          # A = G - V(s)
-policy_loss = -(log_probs * advantage).sum()     # advantage-weighted gradient
-```
-
----
-
-## 7) Policy gradient variants — reducing variance step by step
-
-All four variants have the **same expected value** (they are unbiased estimators). The difference is **variance** — each step removes noise without changing what we optimize:
-
-### Variant 1: Basic (REINFORCE)
-
-```
-∇J = E[ Σₜ ∇log π(a|s) · R(τ) ]
-```
-
-Weight = total trajectory return `R(τ)`. Problem: past rewards add noise.
-
-### Variant 2: Reward-to-Go
-
-```
-∇J = E[ Σₜ ∇log π(aₜ|sₜ) · Gₜ ]
-```
-
-Weight = return from timestep `t` onward only. Past rewards drop out.
-**Implemented in**: `_discounted_returns()` in `benchmarks/policy_gradient.py`.
-
-### Variant 3: Baseline subtraction
-
-```
-∇J = E[ Σₜ ∇log π · (Gₜ - b(s)) ]
-```
-
-Subtract a baseline `b(s) = V(s)`. Only above-average actions get reinforced.
-**Approximate version**: return normalization `(G - mean) / std` in REINFORCE.
-
-### Variant 4: Vanilla Policy Gradient (Advantage)
-
-```
-∇J = E[ Σₜ ∇log π · Aπ(s,a) ]
-```
-
-Use advantage `A = Q(s,a) - V(s)`. Lowest variance of all four.
-**Implemented in**: `benchmarks/a2c.py` and `benchmarks/ppo.py`.
-
-```
-Lower variance → fewer episodes needed → faster convergence → more stable training
-```
-
-### Connection to RLHF
-
-PPO — the RL algorithm behind ChatGPT — uses the advantage-based variant (Variant 4) with clipped updates and GAE. The entire RLHF pipeline is built on this policy gradient foundation.
-
-**Evolution**: `REINFORCE → reward-to-go → + baseline V(s) → advantage → A2C → PPO`
-
----
-
-## 8) Q-learning vs REINFORCE (detailed comparison)
-
-### What each learns
-
-- **Q-learning**: state-action values `Q(s,a)`. Policy is implicit: `π(s) = argmax_a Q(s,a)`.
-- **REINFORCE**: policy directly `πθ(a|s)`. No value table needed.
-
-### Update style
-
-- **Q-learning**: temporal-difference bootstrapping (1-step target).
-- **REINFORCE**: Monte Carlo policy gradient over full episodes.
-
-### Exploration-exploitation comparison
+### Comparison summary
 
 | Aspect | Q-Learning / DQN | REINFORCE | A2C / PPO |
-|--------|------------------|-----------|-----------|
-| Mechanism | Epsilon-greedy (external) | Sampling from distribution (intrinsic) | Sampling + entropy bonus |
-| Controlled by | `ε` (manual schedule) | Network weights (automatic) | Weights + `entropy_coef` |
-| At start | `ε=1.0` → random | Random weights → probs ≈ uniform | Same + high entropy rewarded |
-| At end | `ε=0.01` → near greedy | Concentrated probs → near greedy | Concentrated but not collapsed |
-| Risk | ε decays too fast → underexplores | Premature deterministic collapse | Low (entropy prevents it) |
-| Schedule needed | Yes (ε decay) | No | No |
-
-### Typical fit
-
-- **Tabular Q-learning**: small/discrete state spaces (FrozenLake).
-- **REINFORCE/PPO with neural networks**: continuous or high-dimensional observations (CartPole, Atari, LLM finetuning).
+|--------|-------------------|-----------|-----------|
+| Mechanism | ε-greedy (external) | stochastic sampling (intrinsic) | sampling + entropy bonus |
+| Controlled by | epsilon schedule | network weights | weights + `entropy_coef` |
+| Schedule needed | Yes | No | No |
 
 ---
 
-## 9) Key hyperparameters
+## 17) Demo commands (Part 1)
 
-### Q-learning
+### Setup
+```bash
+uv sync
+```
 
-- `alpha` — learning rate for Q-value updates
-- `gamma` — discount factor
-- `epsilon-start`, `epsilon-min`, `epsilon-decay` — exploration schedule
-- `episodes`, `max-steps`
+### REINFORCE only
+```bash
+uv run python policy_gradient_benchmark.py
+```
 
-### REINFORCE
+### REINFORCE with custom hyperparameters
+```bash
+uv run python policy_gradient_benchmark.py --episodes 900 --gamma 0.99 --learning-rate 0.001
+```
 
-- `lr` — learning rate for network weight updates
-- `gamma` — discount factor for returns
-- `episodes` — number of training episodes
-- `solve-score` — target reward to consider solved
+### REINFORCE with evaluation video
+```bash
+uv run python policy_gradient_benchmark.py --record-video --video-dir videos/policy_gradient --video-episodes 2
+```
 
-### PPO
-
-- `timesteps` — total environment interactions
-- `learning-rate` — optimizer step size
-- `n-steps` — rollout length before each update
-- `batch-size` — minibatch size for updates
-- `gamma` — discount factor
-- `clip-eps` — clipping range for surrogate objective (default 0.2)
-- `entropy-coef` — entropy bonus weight (exploration pressure)
-- `eval-episodes` — episodes for post-training evaluation
-
----
-
-## 10) Post-training verification (all 3 demos)
-
-All demos support:
-
-1. **Human render** for visual behavior checks.
-2. **MP4 recording** for documentation or teaching material.
-3. **Render + recording** in a single run.
-
-Default video directories:
-
-- `videos/q_learning_frozenlake`
-- `videos/reinforce_cartpole`
-- `videos/ppo_cartpole`
-
-Dependency note:
-
-- If video support is missing, install `moviepy` with:
-
-```powershell
-uv pip install moviepy
+### REINFORCE through unified orchestrator
+```bash
+uv run python run_all_comparison.py --methods policy_gradient --policy-gradient-episodes 900
 ```
 
 ---
 
-## 11) Model vs policy vs value function
+## 18) Teaching notes for low-level audience
 
-- **Model**: "what happens next?" (dynamics/reward prediction).
-- **Policy**: "what should I do now?" (action selection).
-- **Value function**: "how good is this state/action?" (expected return).
+Recommended board/slide sequence:
+1. Define policy as action probabilities
+2. Explain sampled trajectory as learning evidence
+3. Show discounted return and early-action impact
+4. Show policy gradient as “increase probability of actions with better outcomes”
+5. Introduce `V(s)` and `Q(s,a)` as expectation tools
+6. Introduce advantage `A = Q - V`
+7. Walk variants: REINFORCE → reward-to-go → baseline → advantage
+8. Clarify Monte Carlo trade-off: simple + unbiased, but noisy
+9. Connect to RLHF: PPO = advantage-based variant + clipping
+10. Explain 3-phase neural learning cycle
+11. Clarify non-neural alternatives (table/linear) vs continuous-state need
+12. Compare exploration approaches across methods
 
-In this repository:
-
-- Q-learning mainly learns a **value function**.
-- REINFORCE and PPO mainly optimize a **policy**.
-- PPO also uses value estimation internally (critic head for advantage).
+Common confusion to address:
+- “Is this supervised learning?” → No labels; delayed reward signal
+- “Why not always argmax?” → stochasticity is needed for exploration and unbiased PG sampling
+- “Why normalize returns?” → stabilizes gradient magnitude
+- “Difference between G and A?” → `G` raw return, `A` baseline-adjusted return
+- “How does it explore without epsilon?” → sampling from policy distribution
+- “Is a neural net always required?” → No; any differentiable policy representation works
 
 ---
 
-## 12) Quick commands
+## 19) Bridge to Part 2
 
-### Q-learning
+Part 2 addresses the next question after REINFORCE:
+- How to reduce variance and improve stability/performance further?
 
-```powershell
-python demos/q_learning_frozenlake.py
-python demos/q_learning_frozenlake.py --slippery
-python demos/q_learning_frozenlake.py --render-eval --render-episodes 5
-python demos/q_learning_frozenlake.py --record-video --video-episodes 5 --video-dir videos/q_learning_frozenlake
-```
+REINFORCE weaknesses → Part 2 methods:
 
-### REINFORCE
+| # | REINFORCE weakness | Part 2 method |
+|---|--------------------|---------------|
+| 1 | High-variance gradients | **A2C**: critic `V(s)` for advantage |
+| 2 | Sample inefficiency | **A3C**: parallel workers and data decorrelation |
+| 3 | Weak credit assignment | **PPO**: clipped surrogate + GAE |
+| 4 | Hyperparameter sensitivity | **TRPO**: KL-constrained trust region |
+| 5 | No update-size guardrail | **PPO**: clipped ratio prevents destructive updates |
 
-```powershell
-python demos/reinforce_cartpole.py
-python demos/reinforce_cartpole.py --episodes 1500 --lr 0.0005 --gamma 0.99
-python demos/reinforce_cartpole.py --render-eval --render-episodes 3
-python demos/reinforce_cartpole.py --record-video --video-episodes 3 --video-dir videos/reinforce_cartpole
-```
-
-### PPO
-
-```powershell
-python demos/gymnasium_ppo_cartpole.py
-python demos/gymnasium_ppo_cartpole.py --render-eval --render-episodes 3
-python demos/gymnasium_ppo_cartpole.py --record-video --video-episodes 3 --video-dir videos/ppo_cartpole
-```
+All Part 2 methods are direct extensions of the policy-gradient foundations covered in this session.
