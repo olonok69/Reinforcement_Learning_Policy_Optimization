@@ -39,11 +39,11 @@ Al terminar esta Parte 2, la audiencia debería entender:
 
 ### Intuición principal
 REINFORCE usa returns completos directos y puede ser ruidoso.
-A2C introduce baseline de valor $V(s)$ y usa advantage:
+A2C introduce baseline de valor `V(s)` y usa advantage:
 
-$$
-\hat{A}_t = R_t - V(s_t)
-$$
+```
+Aₜ = Rₜ - V(sₜ)
+```
 
 Esto normalmente reduce varianza del gradiente.
 
@@ -55,6 +55,39 @@ Esto normalmente reduce varianza del gradiente.
 - shared backbone + policy/value heads
 - policy loss + value loss + entropy term
 - cálculo de returns y advantage por episodio
+
+### Cómo funciona A2C paso a paso
+
+```
+1. Recolectar un episodio completo con la policy actual
+2. Calcular returns descontados Monte Carlo Gₜ para cada paso
+3. Obtener V(sₜ) de la cabeza critic para cada estado
+4. Calcular advantage: Aₜ = Gₜ - V(sₜ)
+5. Calcular loss combinado:
+     L = -Σ log π(a|s) · A        (policy — ponderado por advantage)
+       + value_coef · (V(s) - G)²  (critic — aprender a predecir returns)
+       - entropy_coef · H(π)       (entropía — prevenir colapso)
+6. Backpropagate y actualizar ambas cabezas conjuntamente
+7. Repetir por muchos episodios
+```
+
+### Correspondencia teoría-código
+
+| Concepto teórico | Código en `benchmarks/a2c.py` |
+|-----------------|------------------------------|
+| `π(a\|s)` — actor | `ActorCritic.policy_head` → `Categorical(logits)` |
+| `V(s)` — critic | `ActorCritic.value_head` → escalar |
+| `A = G - V(s)` — advantage | `advantage = returns - values.detach()` |
+| Policy loss | `-(log_probs * advantage).sum()` |
+| Value loss | `F.mse_loss(values, returns)` |
+| Entropy bonus | `dist.entropy().mean()` |
+| Loss combinado | `policy_loss + 0.5*value_loss - 0.01*entropy` |
+
+### Qué arregla A2C vs REINFORCE
+- **Menor varianza** — el baseline de advantage elimina ruido de returns crudos
+- **Mejor asignación de crédito** — solo acciones sobre el promedio se refuerzan
+- **Protección de exploración** — bonus de entropía previene colapso prematuro
+- **Sigue siendo on-policy** — cada trayectoria se usa una vez y se descarta
 
 ---
 
@@ -79,6 +112,22 @@ Trade-off:
 - learner consumiendo batches desde cola
 - patrón de refresco de parámetros compartidos
 
+### Arquitectura en detalle
+
+Cada worker: ejecuta su propia copia del entorno → recolecta `rollout_steps` transiciones → calcula advantages → envía batch a la cola compartida.
+
+Learner: desencola batches → aplica loss combinado (igual que A2C) → actualiza parámetros compartidos del modelo.
+
+Los workers refrescan periódicamente sus pesos locales desde el modelo compartido.
+
+### Config por defecto
+`workers=4, rollout_steps=5, γ=0.99, lr=1e-3, value_coef=0.5, entropy_coef=0.01`
+
+### A2C vs A3C
+- **A2C** — updates síncronos, un solo proceso, más fácil de debuggear y reproducir
+- **A3C** — workers asíncronos, multiprocessing, mejor velocidad en CPUs multi-core
+- **Trade-off**: multiprocessing agrega complejidad de ingeniería (colas, sincronización, manejo de errores)
+
 ---
 
 ## 5) PPO (Proximal Policy Optimization)
@@ -86,9 +135,11 @@ Trade-off:
 ### Intuición principal
 PPO evita saltos grandes de policy con objective clippeado:
 
-$$
-L^{clip}(\theta)=\mathbb{E}[\min(r_t(\theta)\hat{A}_t,\text{clip}(r_t(\theta),1-\epsilon,1+\epsilon)\hat{A}_t)]
-$$
+```
+L_clip(θ) = E[ min( rₜ(θ)·Aₜ , clip(rₜ(θ), 1-ε, 1+ε)·Aₜ ) ]
+
+donde rₜ(θ) = π_new(aₜ|sₜ) / π_old(aₜ|sₜ)
+```
 
 Suele ser default práctico por balance entre estabilidad y simplicidad.
 
@@ -97,9 +148,57 @@ Suele ser default práctico por balance entre estabilidad y simplicidad.
 - Runner standalone: [ppo_benchmark.py](../ppo_benchmark.py)
 
 ### Qué señalar en el código
-- recolección de rollouts
-- cálculo de GAE
+- recolección de rollouts (1024 pasos)
+- cálculo de GAE (`_compute_gae()`)
 - updates por minibatch y múltiples epochs con clipping
+
+### El mecanismo de clipping explicado
+
+El ratio de probabilidad mide cuánto cambió la policy:
+
+```
+r(θ) = π_new(a|s) / π_old(a|s)
+```
+
+- `r = 1.0` → policy sin cambios
+- `r = 1.5` → acción 50% más probable bajo nueva policy
+- `r = 0.5` → acción 50% menos probable
+
+Clipear a `[1-ε, 1+ε]` (default `[0.8, 1.2]`) limita cuánto puede empujar un solo update:
+
+```python
+# benchmarks/ppo.py — el clipping central
+ratio = torch.exp(new_log_probs - old_log_probs)
+surr1 = ratio * advantage
+surr2 = torch.clamp(ratio, 1-clip_eps, 1+clip_eps) * advantage
+policy_loss = -torch.min(surr1, surr2).mean()
+```
+
+### GAE (Generalized Advantage Estimation)
+
+GAE mezcla errores TD multi-paso con parámetro `λ` (default 0.95):
+
+```
+λ=0:    TD puro de 1 paso (baja varianza, alto sesgo)
+λ=1:    Monte Carlo completo (alta varianza, sin sesgo)
+λ=0.95: punto óptimo — mayormente MC pero suavizado por TD
+```
+
+### Flujo de entrenamiento
+1. Recolectar rollout (1024 pasos) con policy actual
+2. Calcular advantages con GAE
+3. Normalizar advantages
+4. Ejecutar 4 epochs por minibatch (shuffle + split en batches de 64) con loss clipeado
+5. Descartar rollout, repetir
+
+### Config por defecto
+`rollout_steps=1024, update_epochs=4, minibatch_size=64, clip_eps=0.2, gae_lambda=0.95, lr=3e-4, value_coef=0.5, entropy_coef=0.01`
+
+### Por qué PPO es el default práctico
+- **Estable** — clipping previene updates catastróficos
+- **Simple** — no requiere optimización restringida (a diferencia de TRPO)
+- **Reutiliza datos** — múltiples epochs por rollout (más sample-efficient que A2C)
+- **RLHF** — usado para finetunear ChatGPT, LLaMA, y otros LLMs
 
 ---
 
@@ -122,6 +221,30 @@ Contras:
 - dependencia de `sb3-contrib`
 - captura de recompensas por callback
 - consistencia de interfaz de benchmark respecto a otros métodos
+
+### La restricción de trust region
+
+```
+maximizar  E[ r(θ) · A ]
+sujeto a   KL( π_old || π_new ) ≤ δ
+```
+
+KL divergence mide qué tan diferentes son dos distribuciones de probabilidad. La restricción dice: "mejora la policy, pero no la cambies demasiado respecto a la actual."
+
+TRPO resuelve esto exactamente usando gradiente conjugado + line search. Teóricamente riguroso pero computacionalmente costoso por update.
+
+### TRPO vs PPO
+- **TRPO** — resuelve la optimización restringida exactamente. Mejora monótona garantizada. Costoso.
+- **PPO** — aproxima la misma idea con clipping simple. Mucho más barato, casi igual de estable, más fácil de implementar.
+- PPO fue diseñado como alternativa más simple a TRPO. En la práctica, PPO es preferido para la mayoría de tareas.
+
+### Cuándo usar TRPO
+- Sistemas safety-critical o robótica donde updates conservadores son esenciales
+- Cuando se necesita garantía teórica de mejora monótona
+- Cuando el presupuesto de cómputo permite el costo extra por update
+
+### Código: benchmarks/trpo.py
+Este repo usa la implementación de TRPO de `sb3-contrib` envuelta para compatibilidad de benchmark. Como sb3 maneja el training loop internamente, las recompensas se capturan por callback para consistencia con los otros métodos.
 
 ---
 
