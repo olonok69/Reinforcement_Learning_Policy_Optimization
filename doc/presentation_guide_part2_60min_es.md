@@ -47,6 +47,17 @@ Aₜ = Rₜ - V(sₜ)
 
 Esto normalmente reduce varianza del gradiente.
 
+**Analogía (de HuggingFace Deep RL):** Imagina que juegas un videojuego. Tú eres el **Actor** (juegas y eliges acciones). Tu amigo sentado al lado es el **Critic** (observa y te dice "buen movimiento" o "eso fue terrible"). Al principio no sabes jugar, así que pruebas acciones al azar. El Critic observa y da feedback. Con ese feedback, actualizas tu estrategia. Mientras tanto, el Critic también mejora su capacidad de juzgar.
+
+### Error TD como estimador de ventaja
+En la práctica, calcular la ventaja exacta `A = Q(s,a) - V(s)` requiere dos redes. Un enfoque más simple usa el **error TD** como aproximación:
+
+```
+δₜ = rₜ + γ · V(sₜ₊₁) - V(sₜ)
+```
+
+Esto dice: "¿la recompensa real + valor del siguiente estado fue mejor o peor que lo que predije para este estado?" Si δ > 0, la acción fue mejor que lo esperado. Es un estimador de 1 paso de la ventaja — sesgado pero con varianza mucho menor que returns Monte Carlo completos.
+
 ### Mapa de código
 - Algoritmo: [benchmarks/a2c.py](../benchmarks/a2c.py)
 - Runner standalone: [a2c_benchmark.py](../a2c_benchmark.py)
@@ -96,12 +107,18 @@ Esto normalmente reduce varianza del gradiente.
 ### Intuición principal
 A3C mantiene estructura actor-critic pero recolecta experiencia con múltiples workers en paralelo.
 
+**Por qué importa (de Arthur Juliani / paper DeepMind 2016):** En DQN, un solo agente interactúa con un solo entorno — la experiencia está altamente correlacionada (estados consecutivos son similares). DQN resuelve esto con un replay buffer. A3C toma un enfoque completamente diferente: en vez de guardar y repetir experiencia vieja, **ejecuta múltiples agentes en paralelo**, cada uno en su propia copia del entorno. Como cada worker explora desde estados diferentes simultáneamente, el batch de transiciones recolectado está naturalmente decorrelacionado — **no necesita replay buffer**.
+
+**El resultado histórico:** En el paper original de 2016, A3C resolvió los mismos juegos Atari que DQN usando solo **16 cores de CPU** en vez de una GPU potente — logrando mejor rendimiento en **1 día** vs los 8 días de DQN. El speedup es casi lineal: más workers → datos más diversos → convergencia más rápida.
+
 Beneficios:
-- decorrelación de datos
+- decorrelación de datos (reemplaza el replay buffer)
 - mejora de tiempo de pared en CPU
+- exploración diversa (cada worker ve estados diferentes)
 
 Trade-off:
 - más complejidad de sistema (procesos, colas, sincronización)
+- los workers pueden tener parámetros algo desactualizados (policy lag)
 
 ### Mapa de código
 - Algoritmo: [benchmarks/a3c.py](../benchmarks/a3c.py)
@@ -111,6 +128,43 @@ Trade-off:
 - worker loop con episodios y mini-rollouts
 - learner consumiendo batches desde cola
 - patrón de refresco de parámetros compartidos
+
+### Arquitectura en detalle
+
+```
+┌─────────────┐     ┌─────────────┐
+│  Worker 1   │     │  Worker 2   │    ... N workers
+│  (su env)   │     │  (su env)   │
+│  recolecta  │     │  recolecta  │
+│  rollouts   │     │  rollouts   │
+└──────┬──────┘     └──────┬──────┘
+       │                   │
+       └──────┬────────────┘
+              ▼
+       ┌──────────────┐
+       │ Cola Compartida│
+       └──────┬───────┘
+              ▼
+       ┌──────────────┐
+       │   Learner     │
+       │  aplica grads │
+       │  actualiza    │
+       └──────────────┘
+```
+
+Cada worker: ejecuta su propia copia del env → recolecta `rollout_steps` transiciones → calcula advantages → envía batch a la cola.
+
+Learner: desencola batches → aplica loss combinado (igual que A2C) → actualiza parámetros compartidos.
+
+Los workers refrescan periódicamente sus pesos locales desde el modelo compartido.
+
+### Config por defecto
+`workers=4, rollout_steps=5, γ=0.99, lr=1e-3, value_coef=0.5, entropy_coef=0.01`
+
+### A2C vs A3C
+- **A2C** — updates síncronos, un solo proceso, más fácil de debuggear y reproducir
+- **A3C** — workers asíncronos, multiprocessing, mejor velocidad en CPUs multi-core
+- **Trade-off**: multiprocessing agrega complejidad de ingeniería (colas, sincronización, manejo de errores)
 
 ### Arquitectura en detalle
 
@@ -142,6 +196,23 @@ donde rₜ(θ) = π_new(aₜ|sₜ) / π_old(aₜ|sₜ)
 ```
 
 Suele ser default práctico por balance entre estabilidad y simplicidad.
+
+**La analogía del "precipicio" (de HuggingFace Deep RL):** Imagina estar en la ladera de una montaña. El gradiente te dice "da un paso a la derecha". Un paso normal está bien — te acercas a la cima. Pero un paso apenas más grande te lanza por un precipicio a un valle completamente diferente, y toma mucho tiempo volver a subir. En supervised learning, otros datos te corrigen. En RL, **los datos dependen de tu policy actual** — si das un mal paso, tus datos futuros vienen de una policy mala, creando una espiral descendente. PPO previene esto limitando el tamaño de cada paso.
+
+### Los 6 casos del clipping explicados
+
+La fórmula `min(unclipped, clipped)` crea 6 comportamientos según el ratio `r` y la ventaja `A`:
+
+```
+Caso 1: r en [0.8, 1.2], A > 0  →  gradiente empuja acción ARRIBA (update normal)
+Caso 2: r en [0.8, 1.2], A < 0  →  gradiente empuja acción ABAJO (update normal)
+Caso 3: r < 0.8,         A > 0  →  gradiente empuja ARRIBA (quiere recuperar)
+Caso 4: r < 0.8,         A < 0  →  gradiente = 0 (ya está suficientemente desalentada)
+Caso 5: r > 1.2,         A > 0  →  gradiente = 0 (ya está suficientemente alentada)
+Caso 6: r > 1.2,         A < 0  →  gradiente empuja ABAJO (quiere corregir)
+```
+
+**Insight clave:** En los casos 4 y 5, el gradiente es CERO — la policy ya se movió suficiente en esa dirección, así que el clip detiene más movimiento. Este es el mecanismo que previene updates catastróficos.
 
 ### Mapa de código
 - Algoritmo: [benchmarks/ppo.py](../benchmarks/ppo.py)
@@ -207,11 +278,16 @@ GAE mezcla errores TD multi-paso con parámetro `λ` (default 0.95):
 ### Intuición principal
 TRPO restringe updates para mantener la policy en una trust region (típicamente con constraint KL).
 
+**La analogía de la montaña (de Dilith Jayakody):** Imagina estar en la ladera de una montaña con forma extraña. El gradiente te dice "da un paso a la derecha". Un paso normal te acerca al valle (bien). Pero un paso apenas más grande te lanza a un pozo completamente diferente — y recuperarse es muy difícil. En supervised learning, otros datos etiquetados te corrigen. Pero en RL, **los datos son no-estacionarios**: dependen de tu policy actual. Si un update malo lleva a acciones malas, todos los datos futuros de entrenamiento vienen de esas acciones malas, creando un ciclo vicioso. TRPO previene esto definiendo una "trust region" — el espacio alrededor de tu policy actual donde confías que los updates son seguros.
+
+**Por qué RL es más difícil que supervised learning aquí:** En supervised learning, siempre tienes las etiquetas correctas. Aunque un paso del gradiente sea malo, las demás etiquetas te corrigen. En RL, si tu policy da un mal paso, genera trayectorias malas, que producen gradientes malos, que empeoran la policy. La distribución de datos cambia con cada update — este es el problema de **no-estacionaridad** que hace peligrosos los updates grandes.
+
 Pros:
 - updates conservadores y principiados
+- garantía teórica de mejora monótona
 
 Contras:
-- maquinaria de optimización más pesada
+- maquinaria de optimización más pesada (gradiente conjugado + backtracking line search)
 
 ### Mapa de código
 - Wrapper de integración: [benchmarks/trpo.py](../benchmarks/trpo.py)
