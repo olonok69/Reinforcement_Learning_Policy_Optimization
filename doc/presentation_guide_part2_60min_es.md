@@ -67,6 +67,12 @@ Esto dice: "¿la recompensa real + valor del siguiente estado fue mejor o peor q
 - policy loss + value loss + entropy term
 - cálculo de returns y advantage por episodio
 
+### Concepto clave → ancla exacta en código
+- Definición del modelo: `ActorCritic` en [../benchmarks/a2c.py](../benchmarks/a2c.py)
+- Entrypoint principal: `run_a2c(...)` en [../benchmarks/a2c.py](../benchmarks/a2c.py)
+- Cálculo de advantage: `advantages_t = returns_t - values_t.detach()` en [../benchmarks/a2c.py](../benchmarks/a2c.py)
+- Losses de policy/value/entropía: `policy_loss`, `value_loss`, `entropy_t` en [../benchmarks/a2c.py](../benchmarks/a2c.py)
+
 ### Cómo funciona A2C paso a paso
 
 ```
@@ -129,6 +135,12 @@ Trade-off:
 - learner consumiendo batches desde cola
 - patrón de refresco de parámetros compartidos
 
+### Concepto clave → ancla exacta en código
+- Lógica de rollout de workers: `_worker_loop(...)` en [../benchmarks/a3c.py](../benchmarks/a3c.py)
+- Snapshot de parámetros compartidos: `_snapshot_state_dict(...)` en [../benchmarks/a3c.py](../benchmarks/a3c.py)
+- Loop del learner y consumo de cola: `run_a3c(...)` en [../benchmarks/a3c.py](../benchmarks/a3c.py)
+- Control asíncrono: `data_queue`, `error_queue`, `stop_event` en [../benchmarks/a3c.py](../benchmarks/a3c.py)
+
 ### Arquitectura en detalle
 
 ```
@@ -165,14 +177,6 @@ Los workers refrescan periódicamente sus pesos locales desde el modelo comparti
 - **A2C** — updates síncronos, un solo proceso, más fácil de debuggear y reproducir
 - **A3C** — workers asíncronos, multiprocessing, mejor velocidad en CPUs multi-core
 - **Trade-off**: multiprocessing agrega complejidad de ingeniería (colas, sincronización, manejo de errores)
-
-### Arquitectura en detalle
-
-Cada worker: ejecuta su propia copia del entorno → recolecta `rollout_steps` transiciones → calcula advantages → envía batch a la cola compartida.
-
-Learner: desencola batches → aplica loss combinado (igual que A2C) → actualiza parámetros compartidos del modelo.
-
-Los workers refrescan periódicamente sus pesos locales desde el modelo compartido.
 
 ### Config por defecto
 `workers=4, rollout_steps=5, γ=0.99, lr=1e-3, value_coef=0.5, entropy_coef=0.01`
@@ -222,6 +226,12 @@ Caso 6: r > 1.2,         A < 0  →  gradiente empuja ABAJO (quiere corregir)
 - recolección de rollouts (1024 pasos)
 - cálculo de GAE (`_compute_gae()`)
 - updates por minibatch y múltiples epochs con clipping
+
+### Concepto clave → ancla exacta en código
+- Función GAE: `_compute_gae(...)` en [../benchmarks/ppo.py](../benchmarks/ppo.py)
+- Entrenador principal: `run_ppo(...)` en [../benchmarks/ppo.py](../benchmarks/ppo.py)
+- Surrogate clippeado: `ratio`, `surr1`, `surr2`, `policy_loss` en [../benchmarks/ppo.py](../benchmarks/ppo.py)
+- Update multi-epoch por minibatch: loop `for start in range(...)` en [../benchmarks/ppo.py](../benchmarks/ppo.py)
 
 ### El mecanismo de clipping explicado
 
@@ -297,6 +307,12 @@ Contras:
 - dependencia de `sb3-contrib`
 - captura de recompensas por callback
 - consistencia de interfaz de benchmark respecto a otros métodos
+
+### Concepto clave → ancla exacta en código
+- Import externo TRPO y validación: `importlib.import_module("sb3_contrib")` en [../benchmarks/trpo.py](../benchmarks/trpo.py)
+- Callback de recolección de rewards: `EpisodeRewardCallback` en [../benchmarks/trpo.py](../benchmarks/trpo.py)
+- Entrypoint compatible con benchmark: `run_trpo(...)` en [../benchmarks/trpo.py](../benchmarks/trpo.py)
+- Puente CLI: [../trpo_benchmark.py](../trpo_benchmark.py)
 
 ### La restricción de trust region
 
@@ -391,3 +407,15 @@ Orden práctico sugerido para baseline:
 4. Usar TRPO si se necesita control más conservador del update y hay presupuesto de cómputo.
 
 Para bases conceptuales sólidas, siempre anclar primero en Parte 1 (policy optimization + Monte Carlo + REINFORCE) antes del deep-dive de variantes.
+
+---
+
+## 11) Fuentes sugeridas usadas en la narrativa de Parte 2
+
+- A2C: https://huggingface.co/blog/deep-rl-a2c
+- A3C: https://awjuliani.medium.com/simple-reinforcement-learning-with-tensorflow-part-8-asynchronous-actor-critic-agents-a3c-c88f72a5e9f2
+- PPO: https://huggingface.co/blog/deep-rl-ppo
+- PPO (patrones de implementación): https://docs.pytorch.org/rl/0.7/tutorials/multiagent_ppo.html
+- TRPO: https://dilithjay.com/blog/trpo
+- TRPO: https://jonathan-hui.medium.com/rl-trust-region-policy-optimization-trpo-explained-a6ee04eeeee9
+- TRPO: https://towardsdatascience.com/trust-region-policy-optimization-trpo-explained-4b56bd206fc2/

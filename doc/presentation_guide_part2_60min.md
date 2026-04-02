@@ -67,6 +67,12 @@ This says: "was the actual reward + next state value better or worse than what I
 - Policy loss + value loss + entropy term
 - Episode-wise returns and advantage computation
 
+### Key concept → exact code anchors
+- Model definition: `ActorCritic` in [../benchmarks/a2c.py](../benchmarks/a2c.py)
+- Entrypoint: `run_a2c(...)` in [../benchmarks/a2c.py](../benchmarks/a2c.py)
+- Advantage computation: `advantages_t = returns_t - values_t.detach()` in [../benchmarks/a2c.py](../benchmarks/a2c.py)
+- Policy/value/entropy losses: `policy_loss`, `value_loss`, `entropy_t` in [../benchmarks/a2c.py](../benchmarks/a2c.py)
+
 ### How A2C works step by step
 
 ```
@@ -128,6 +134,12 @@ Trade-off:
 - Worker loop collecting episodes and mini-rollouts
 - Learner consuming batch queue
 - Shared parameter refresh pattern
+
+### Key concept → exact code anchors
+- Worker rollout logic: `_worker_loop(...)` in [../benchmarks/a3c.py](../benchmarks/a3c.py)
+- Shared parameters snapshot: `_snapshot_state_dict(...)` in [../benchmarks/a3c.py](../benchmarks/a3c.py)
+- Learner loop and queue consumption: `run_a3c(...)` in [../benchmarks/a3c.py](../benchmarks/a3c.py)
+- Async control signals: `data_queue`, `error_queue`, `stop_event` in [../benchmarks/a3c.py](../benchmarks/a3c.py)
 
 ### Architecture in detail
 
@@ -206,6 +218,12 @@ Case 6: r > 1.2,         A < 0  →  gradient pushes action DOWN (wants to corre
 - Rollout buffer collection (1024 steps)
 - GAE computation (`_compute_gae()`)
 - Minibatch multi-epoch update with clipping
+
+### Key concept → exact code anchors
+- GAE function: `_compute_gae(...)` in [../benchmarks/ppo.py](../benchmarks/ppo.py)
+- Core trainer: `run_ppo(...)` in [../benchmarks/ppo.py](../benchmarks/ppo.py)
+- Clipped surrogate: `ratio`, `surr1`, `surr2`, `policy_loss` in [../benchmarks/ppo.py](../benchmarks/ppo.py)
+- Multi-epoch minibatch update: inner `for start in range(...)` loop in [../benchmarks/ppo.py](../benchmarks/ppo.py)
 
 ### The clipping mechanism explained
 
@@ -291,6 +309,12 @@ Cons:
 - Dependency on `sb3-contrib`
 - Callback-based reward capture
 - Wrapper-based benchmark consistency with other methods
+
+### Key concept → exact code anchors
+- External TRPO import and validation: `importlib.import_module("sb3_contrib")` in [../benchmarks/trpo.py](../benchmarks/trpo.py)
+- Reward collection callback: `EpisodeRewardCallback` in [../benchmarks/trpo.py](../benchmarks/trpo.py)
+- Bench-compatible entrypoint: `run_trpo(...)` in [../benchmarks/trpo.py](../benchmarks/trpo.py)
+- CLI bridge: [../trpo_benchmark.py](../trpo_benchmark.py)
 
 ### The trust region constraint
 
@@ -385,3 +409,15 @@ Suggested practical baseline order:
 4. Use TRPO when conservative policy updates are required and extra compute is acceptable.
 
 For foundational intuition, always anchor audience in Part 1 (policy optimization + Monte Carlo + REINFORCE) before deep-diving these variants.
+
+---
+
+## 11) Suggested sources used for this Part 2 narrative
+
+- A2C: https://huggingface.co/blog/deep-rl-a2c
+- A3C: https://awjuliani.medium.com/simple-reinforcement-learning-with-tensorflow-part-8-asynchronous-actor-critic-agents-a3c-c88f72a5e9f2
+- PPO: https://huggingface.co/blog/deep-rl-ppo
+- PPO (implementation patterns): https://docs.pytorch.org/rl/0.7/tutorials/multiagent_ppo.html
+- TRPO: https://dilithjay.com/blog/trpo
+- TRPO: https://jonathan-hui.medium.com/rl-trust-region-policy-optimization-trpo-explained-a6ee04eeeee9
+- TRPO: https://towardsdatascience.com/trust-region-policy-optimization-trpo-explained-4b56bd206fc2/

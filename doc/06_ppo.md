@@ -52,3 +52,21 @@ PPO is usually sensitive to the interaction among rollout size, minibatch size, 
 - Common failure mode: too many update epochs overfit stale rollout.
 - Keep observation/reward preprocessing consistent across methods for fair comparisons.
 - If KL divergence spikes, reduce learning rate or clip range.
+
+---
+
+## Repository code anchors (practical mapping)
+- Main implementation: [../benchmarks/ppo.py](../benchmarks/ppo.py)
+- Standalone runner: [../ppo_benchmark.py](../ppo_benchmark.py)
+- Comparison orchestrator: [../run_all_comparison.py](../run_all_comparison.py)
+
+Key symbols to present live:
+- `PPOConfig`
+- `_compute_gae(...)`
+- `run_ppo(...)`
+
+---
+
+## Suggested external sources
+- https://huggingface.co/blog/deep-rl-ppo
+- https://docs.pytorch.org/rl/0.7/tutorials/multiagent_ppo.html

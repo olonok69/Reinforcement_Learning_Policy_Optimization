@@ -1,0 +1,37 @@
+[
+  {
+    "algo": "Policy Gradient",
+    "episodes": 5,
+    "elapsed_sec": 2.715958595275879,
+    "max_avg_reward_100": 31.0,
+    "final_avg_reward_100": 31.0
+  },
+  {
+    "algo": "A2C",
+    "episodes": 5,
+    "elapsed_sec": 0.27535462379455566,
+    "max_avg_reward_100": 21.4,
+    "final_avg_reward_100": 21.4
+  },
+  {
+    "algo": "A3C",
+    "episodes": 5,
+    "elapsed_sec": 17.812752723693848,
+    "max_avg_reward_100": 21.0,
+    "final_avg_reward_100": 21.0
+  },
+  {
+    "algo": "PPO",
+    "episodes": 5,
+    "elapsed_sec": 0.15311789512634277,
+    "max_avg_reward_100": 24.2,
+    "final_avg_reward_100": 24.2
+  },
+  {
+    "algo": "TRPO",
+    "episodes": 97,
+    "elapsed_sec": 7.371894121170044,
+    "max_avg_reward_100": 20.835051546391753,
+    "final_avg_reward_100": 20.835051546391753
+  }
+]

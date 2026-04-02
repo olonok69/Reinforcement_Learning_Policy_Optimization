@@ -36,3 +36,22 @@ In practice, TRPO approximates second-order information (through Fisher-vector p
 - If dependency is missing, the script reports a clear install message.
 - For production workflows, PPO is usually preferred for simplicity and speed.
 - If TRPO appears too slow for iterative experimentation, use PPO as the default baseline and reserve TRPO for stricter update-control scenarios.
+
+---
+
+## Repository code anchors (practical mapping)
+- Main integration wrapper: [../benchmarks/trpo.py](../benchmarks/trpo.py)
+- Standalone runner: [../trpo_benchmark.py](../trpo_benchmark.py)
+- Comparison orchestrator: [../run_all_comparison.py](../run_all_comparison.py)
+
+Key symbols to present live:
+- `TRPOConfig`
+- `EpisodeRewardCallback`
+- `run_trpo(...)`
+
+---
+
+## Suggested external sources
+- https://dilithjay.com/blog/trpo
+- https://jonathan-hui.medium.com/rl-trust-region-policy-optimization-trpo-explained-a6ee04eeeee9
+- https://towardsdatascience.com/trust-region-policy-optimization-trpo-explained-4b56bd206fc2/
