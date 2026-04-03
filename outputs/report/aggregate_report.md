@@ -35,3 +35,4 @@ Total algorithms: **5**
 ## Reproducibility note
 
 Current summary appears to use single-run statistics (`runs=1` for each method), so standard deviations are zero. For robust comparisons, aggregate multiple seeds.
+
