@@ -2,9 +2,9 @@
   {
     "algo": "TRPO",
     "runs": 1,
-    "episodes_mean": 515.0,
+    "episodes_mean": 483.0,
     "episodes_std": 0.0,
-    "elapsed_sec_mean": 144.51036620140076,
+    "elapsed_sec_mean": 176.43249440193176,
     "elapsed_sec_std": 0.0,
     "max_avg_reward_100_mean": 500.0,
     "max_avg_reward_100_std": 0.0,
@@ -12,15 +12,27 @@
     "final_avg_reward_100_std": 0.0
   },
   {
+    "algo": "A3C",
+    "runs": 1,
+    "episodes_mean": 500.0,
+    "episodes_std": 0.0,
+    "elapsed_sec_mean": 83.016850233078,
+    "elapsed_sec_std": 0.0,
+    "max_avg_reward_100_mean": 184.3199920654297,
+    "max_avg_reward_100_std": 0.0,
+    "final_avg_reward_100_mean": 160.09,
+    "final_avg_reward_100_std": 0.0
+  },
+  {
     "algo": "PPO",
     "runs": 1,
     "episodes_mean": 500.0,
     "episodes_std": 0.0,
-    "elapsed_sec_mean": 21.687309980392456,
+    "elapsed_sec_mean": 32.60525321960449,
     "elapsed_sec_std": 0.0,
-    "max_avg_reward_100_mean": 68.80000305175781,
+    "max_avg_reward_100_mean": 60.59000015258789,
     "max_avg_reward_100_std": 0.0,
-    "final_avg_reward_100_mean": 55.25,
+    "final_avg_reward_100_mean": 60.42,
     "final_avg_reward_100_std": 0.0
   },
   {
@@ -28,23 +40,11 @@
     "runs": 1,
     "episodes_mean": 500.0,
     "episodes_std": 0.0,
-    "elapsed_sec_mean": 27.555824041366577,
+    "elapsed_sec_mean": 28.83949303627014,
     "elapsed_sec_std": 0.0,
-    "max_avg_reward_100_mean": 59.47999954223633,
+    "max_avg_reward_100_mean": 47.409996032714844,
     "max_avg_reward_100_std": 0.0,
-    "final_avg_reward_100_mean": 58.86,
-    "final_avg_reward_100_std": 0.0
-  },
-  {
-    "algo": "A3C",
-    "runs": 1,
-    "episodes_mean": 500.0,
-    "episodes_std": 0.0,
-    "elapsed_sec_mean": 26.03405523300171,
-    "elapsed_sec_std": 0.0,
-    "max_avg_reward_100_mean": 18.89999771118164,
-    "max_avg_reward_100_std": 0.0,
-    "final_avg_reward_100_mean": 11.46,
+    "final_avg_reward_100_mean": 47.41,
     "final_avg_reward_100_std": 0.0
   },
   {
@@ -52,11 +52,11 @@
     "runs": 1,
     "episodes_mean": 700.0,
     "episodes_std": 0.0,
-    "elapsed_sec_mean": 26.1089825630188,
+    "elapsed_sec_mean": 25.297800064086914,
     "elapsed_sec_std": 0.0,
-    "max_avg_reward_100_mean": 17.19999885559082,
+    "max_avg_reward_100_mean": 17.670000076293945,
     "max_avg_reward_100_std": 0.0,
-    "final_avg_reward_100_mean": 11.45,
+    "final_avg_reward_100_mean": 9.97,
     "final_avg_reward_100_std": 0.0
   }
 ]

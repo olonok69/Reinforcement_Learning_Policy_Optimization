@@ -106,6 +106,13 @@ Esto dice: "¿la recompensa real + valor del siguiente estado fue mejor o peor q
 - **Protección de exploración** — bonus de entropía previene colapso prematuro
 - **Sigue siendo on-policy** — cada trayectoria se usa una vez y se descarta
 
+### ¿Para qué sirve la entropía en A2C y A3C? (en lenguaje simple)
+- Es un **bono de “curiosidad”**: recompensa un poco a la policy por no volverse demasiado rígida muy pronto.
+- Sin entropía, el agente puede obsesionarse temprano con una sola acción y dejar de explorar alternativas.
+- Con entropía, mantiene más diversidad de acciones al inicio, descubre mejores estrategias y evita atascarse.
+- En la loss aparece restando `entropy_coef * entropy`: eso empuja a mantener distribución de acciones más “abierta”.
+- Regla práctica: al principio suele ayudar más (exploración); más tarde puedes bajar `entropy_coef` para volver la policy más decidida.
+
 ---
 
 ## 4) A3C (Asynchronous Advantage Actor-Critic)
@@ -177,6 +184,8 @@ Los workers refrescan periódicamente sus pesos locales desde el modelo comparti
 - **A2C** — updates síncronos, un solo proceso, más fácil de debuggear y reproducir
 - **A3C** — workers asíncronos, multiprocessing, mejor velocidad en CPUs multi-core
 - **Trade-off**: multiprocessing agrega complejidad de ingeniería (colas, sincronización, manejo de errores)
+
+Nota: en **A3C** la entropía cumple exactamente el mismo objetivo que en A2C (evitar colapso prematuro y sostener exploración), solo que ahora se aplica sobre datos que llegan de múltiples workers.
 
 ### Config por defecto
 `workers=4, rollout_steps=5, γ=0.99, lr=1e-3, value_coef=0.5, entropy_coef=0.01`
@@ -330,6 +339,30 @@ TRPO resuelve esto exactamente usando gradiente conjugado + line search. Teóric
 - **PPO** — aproxima la misma idea con clipping simple. Mucho más barato, casi igual de estable, más fácil de implementar.
 - PPO fue diseñado como alternativa más simple a TRPO. En la práctica, PPO es preferido para la mayoría de tareas.
 
+### Introducción breve a GRPO
+GRPO (Group Relative Policy Optimization) es una variante reciente de policy optimization, popular en flujos de RL para LLMs.
+
+Idea central en lenguaje simple:
+- En vez de depender fuertemente de un critic de valor, GRPO compara respuestas dentro de un **grupo** de muestras para el mismo prompt/contexto.
+- A cada respuesta se le asigna una señal **relativa** (mejor o peor que las otras del grupo), no solo una señal absoluta.
+- Luego aplica actualización tipo PPO (ratio + clipping), pero con esa ventaja/recompensa relativa de grupo.
+
+Intuición: no pregunta solo “¿esta acción fue buena?”, sino “¿fue mejor que sus alternativas cercanas en el mismo contexto?”.
+
+### GRPO vs PPO vs TRPO
+
+| Aspecto | GRPO | PPO | TRPO |
+|---|---|---|---|
+| Señal principal | Ranking/ventaja relativa en grupo | Advantage (usualmente con critic + GAE) | Advantage con restricción KL explícita |
+| Control de tamaño de update | Clipping estilo PPO | Clipping | Constraint KL (trust region) |
+| Complejidad práctica | Media (sampling/ranking por grupo) | Baja-media | Alta |
+| Uso típico | Ajuste de políticas con preferencias comparativas (muy común en LLM RL) | Baseline general en RL práctico | Casos donde se prioriza garantía teórica/conservadora |
+
+Resumen rápido:
+- **TRPO**: más riguroso, más caro.
+- **PPO**: balance práctico más usado.
+- **GRPO**: mantiene estabilidad tipo PPO, pero usa señal relativa de grupo para aprender de comparaciones.
+
 ### Cuándo usar TRPO
 - Sistemas safety-critical o robótica donde updates conservadores son esenciales
 - Cuando se necesita garantía teórica de mejora monótona
@@ -340,7 +373,68 @@ Este repo usa la implementación de TRPO de `sb3-contrib` envuelta para compatib
 
 ---
 
-## 7) Narrativa de comparación lado a lado
+## 7) GRPO (Group Relative Policy Optimization)
+
+### Intuición principal
+GRPO es el algoritmo detrás de DeepSeek-R1 y la frontera actual del RL para razonamiento en LLMs. Se basa en el objetivo clipeado de PPO pero **elimina la red critic por completo**, reemplazándola con rewards normalizados por grupo como estimación de ventaja.
+
+**Por qué funciona para LLMs (de Cameron Wolfe):** El critic de PPO existe para reducir varianza en la estimación de advantage. Pero los LLMs son modelos extensamente pre-entrenados que se están finetuneando — el problema de alta varianza es mucho menos severo que en RL desde cero. Además, los LLMs se entrenan mayormente con **recompensas de resultado** (correcto/incorrecto), lo que hace innecesaria la estimación de valor por token. Así que el critic se puede eliminar.
+
+### Cómo funciona GRPO paso a paso
+
+```
+1. Para cada prompt, generar G completaciones (un "grupo") de la policy actual
+   Ej: G=8 respuestas diferentes a un problema de matemáticas
+
+2. Puntuar cada completación con reward rᵢ
+   (ej: 1 si es correcta, 0 si es incorrecta — rewards verificables, sin reward model)
+
+3. Calcular ventaja relativa al grupo:
+   Aᵢ = (rᵢ - mean(r)) / std(r)
+   La media del grupo ES el baseline. No se necesita red critic V(s).
+
+4. Actualizar policy con clipping estilo PPO + penalización KL contra
+   una policy de referencia para prevenir drift:
+   J_GRPO = E[ min(r(θ)·A, clip(r(θ), 1-ε, 1+ε)·A) ] - β·KL(π_θ || π_ref)
+```
+
+### PPO vs GRPO
+
+| Aspecto | PPO | GRPO |
+|---------|-----|------|
+| Ventaja | GAE sobre V(s) por token | Reward normalizado por grupo |
+| Critic | Requerido (red grande) | Ninguno |
+| Memoria | Policy + critic + reward model (~3x) | Policy + referencia (~2x) |
+| Fuente de reward | Reward model (RLHF) | Rewards verificables (RLVR) |
+| Cómputo | Mayor | ~50% menos |
+| Usado en | ChatGPT, Claude (RLHF) | DeepSeek-R1, Qwen-3, OLMo-3 (razonamiento) |
+
+### RLHF vs RLVR
+
+- **RLHF** (era ChatGPT): reward model aprendido de preferencias humanas. Usa PPO. Riesgo: reward hacking.
+- **RLVR** (era DeepSeek-R1): rewards verificables (correcto/incorrecto). Sin reward model. Usa GRPO. Más difícil de manipular.
+
+### Dónde destaca GRPO
+- **Razonamiento matemático** — DeepSeekMath: 46.8% → 51.7% en benchmark MATH
+- **Generación de código** — verificable con test cases
+- **Modelos de razonamiento** — DeepSeek-R1, Qwen-3, OLMo-3
+- **Accesibilidad** — HuggingFace TRL tiene `GRPOTrainer` integrado
+
+### La evolución continúa
+
+```
+REINFORCE → A2C → PPO → GRPO
+(add critic)  (add clip)  (drop critic, group advantage)
+```
+
+### Referencias
+- Cameron R. Wolfe — GRPO: [cameronrwolfe.substack.com/p/grpo](https://cameronrwolfe.substack.com/p/grpo)
+- DeepSeekMath paper: [arXiv:2402.03300](https://arxiv.org/abs/2402.03300)
+- DeepSeek-R1 paper: [arXiv:2501.12948](https://arxiv.org/abs/2501.12948)
+
+---
+
+## 8) Narrativa de comparación lado a lado
 
 | Método | Idea principal | Fortaleza | Trade-off común |
 |---|---|---|---|
@@ -351,7 +445,7 @@ Este repo usa la implementación de TRPO de `sb3-contrib` envuelta para compatib
 
 ---
 
-## 8) Comandos de demo (Parte 2)
+## 9) Comandos de demo (Parte 2)
 
 ### Ejecutar cada método
 ```bash
@@ -378,7 +472,7 @@ uv run python run_all_comparison.py --methods a2c a3c ppo trpo --a2c-episodes 60
 
 ---
 
-## 9) Reportes e interpretación
+## 10) Reportes e interpretación
 
 Métricas principales del comparison runner:
 - `max_avg_reward_100`
@@ -398,7 +492,7 @@ Pipeline de agregación:
 
 ---
 
-## 10) Cierre y recomendaciones
+## 11) Cierre y recomendaciones
 
 Orden práctico sugerido para baseline:
 1. Empezar por PPO.
@@ -410,7 +504,7 @@ Para bases conceptuales sólidas, siempre anclar primero en Parte 1 (policy opti
 
 ---
 
-## 11) Fuentes sugeridas usadas en la narrativa de Parte 2
+## 12) Fuentes sugeridas usadas en la narrativa de Parte 2
 
 - A2C: https://huggingface.co/blog/deep-rl-a2c
 - A3C: https://awjuliani.medium.com/simple-reinforcement-learning-with-tensorflow-part-8-asynchronous-actor-critic-agents-a3c-c88f72a5e9f2

@@ -332,6 +332,30 @@ TRPO solves this exactly using conjugate gradient + line search. This is theoret
 - **PPO** — approximates the same idea with simple clipping. Much cheaper, nearly as stable, easier to implement.
 - PPO was designed as a simpler alternative to TRPO. In practice, PPO is preferred for most tasks.
 
+### Brief introduction to GRPO
+GRPO (Group Relative Policy Optimization) is a newer policy-optimization variant, popular in RL workflows for LLMs.
+
+Core idea in plain English:
+- Instead of depending mostly on a value critic, GRPO compares responses inside a **group** of samples for the same prompt/context.
+- Each response gets a **relative** learning signal (better/worse than peers), not only an absolute signal.
+- It then applies PPO-style policy updates (ratio + clipping), but with this group-relative signal.
+
+Intuition: it asks not only “was this action good?”, but “was it better than nearby alternatives in the same context?”
+
+### GRPO vs PPO vs TRPO
+
+| Aspect | GRPO | PPO | TRPO |
+|---|---|---|---|
+| Main training signal | Group-relative ranking/advantage | Advantage (usually critic + GAE) | Advantage with explicit KL constraint |
+| Update-size control | PPO-style clipping | Clipping | KL trust-region constraint |
+| Practical complexity | Medium (group sampling/ranking) | Low-medium | High |
+| Typical use | Preference-comparison heavy RL (common in LLM RL) | General practical RL baseline | Cases prioritizing conservative/theoretical guarantees |
+
+Quick summary:
+- **TRPO**: most rigorous, most expensive.
+- **PPO**: strongest practical default.
+- **GRPO**: PPO-like stability with group-relative learning from comparisons.
+
 ### When to use TRPO
 - Safety-critical systems or robotics where conservative updates are essential
 - When you need a theoretical monotonic improvement guarantee
@@ -342,7 +366,68 @@ This repo uses the `sb3-contrib` TRPO implementation wrapped for benchmark compa
 
 ---
 
-## 7) Side-by-side comparison narrative
+## 7) GRPO (Group Relative Policy Optimization)
+
+### Key intuition
+GRPO is the algorithm behind DeepSeek-R1 and the current frontier for RL-based LLM reasoning. It builds on PPO's clipped objective but **eliminates the critic network entirely**, replacing it with group-normalized rewards as the advantage estimate.
+
+**Why this works for LLMs (from Cameron Wolfe):** PPO's critic exists to reduce variance in advantage estimation. But LLMs are extensively pre-trained models being finetuned — the high-variance problem is much less severe than in RL from scratch. Additionally, LLMs are mostly trained with **outcome rewards** (correct/incorrect), which makes per-token value estimation unnecessary. So the critic can be dropped entirely.
+
+### How GRPO works step by step
+
+```
+1. For each prompt, generate G completions (a "group") from current policy
+   E.g. G=8 different answers to one math problem
+
+2. Score each completion with a reward rᵢ
+   (e.g. 1 if correct, 0 if wrong — verifiable rewards, no reward model needed)
+
+3. Compute group-relative advantage:
+   Aᵢ = (rᵢ - mean(r)) / std(r)
+   The group mean IS the baseline. No critic network V(s) needed.
+
+4. Update policy with PPO-style clipping + KL divergence penalty against
+   a reference policy to prevent drift:
+   J_GRPO = E[ min(r(θ)·A, clip(r(θ), 1-ε, 1+ε)·A) ] - β·KL(π_θ || π_ref)
+```
+
+### PPO vs GRPO
+
+| Aspect | PPO | GRPO |
+|--------|-----|------|
+| Advantage | GAE over per-token V(s) | Normalized group reward |
+| Critic | Required (large network) | None |
+| Memory | Policy + critic + reward model (~3x) | Policy + reference only (~2x) |
+| Reward source | Reward model (RLHF) | Verifiable rewards (RLVR) |
+| Compute | Higher | ~50% less |
+| Used in | ChatGPT, Claude (RLHF) | DeepSeek-R1, Qwen-3, OLMo-3 (reasoning) |
+
+### RLHF vs RLVR
+
+- **RLHF** (ChatGPT era): learned reward model from human preferences. Uses PPO. Risk: reward hacking.
+- **RLVR** (DeepSeek-R1 era): verifiable rewards (correct/incorrect). No reward model needed. Uses GRPO. Harder to game.
+
+### Where GRPO excels
+- **Math reasoning** — DeepSeekMath: 46.8% → 51.7% on MATH benchmark
+- **Code generation** — verifiable via test cases
+- **Large reasoning models** — DeepSeek-R1, Qwen-3, OLMo-3
+- **Accessibility** — HuggingFace TRL has built-in `GRPOTrainer`
+
+### The evolution continues
+
+```
+REINFORCE → A2C → PPO → GRPO
+(add critic)  (add clip)  (drop critic, group advantage)
+```
+
+### References
+- Cameron R. Wolfe — GRPO: [cameronrwolfe.substack.com/p/grpo](https://cameronrwolfe.substack.com/p/grpo)
+- DeepSeekMath paper: [arXiv:2402.03300](https://arxiv.org/abs/2402.03300)
+- DeepSeek-R1 paper: [arXiv:2501.12948](https://arxiv.org/abs/2501.12948)
+
+---
+
+## 8) Side-by-side comparison narrative
 
 | Method | Main idea | Strength | Common trade-off |
 |---|---|---|---|
@@ -353,7 +438,7 @@ This repo uses the `sb3-contrib` TRPO implementation wrapped for benchmark compa
 
 ---
 
-## 8) Demo commands (Part 2)
+## 9) Demo commands (Part 2)
 
 ### Run each method
 ```bash
@@ -380,7 +465,7 @@ uv run python run_all_comparison.py --methods a2c a3c ppo trpo --a2c-episodes 60
 
 ---
 
-## 9) Reporting and interpretation
+## 10) Reporting and interpretation
 
 Primary metrics produced by comparison runner:
 - `max_avg_reward_100`
@@ -400,7 +485,7 @@ Aggregation pipeline:
 
 ---
 
-## 10) Close and recommendations
+## 11) Close and recommendations
 
 Suggested practical baseline order:
 1. Start with PPO.
@@ -412,7 +497,7 @@ For foundational intuition, always anchor audience in Part 1 (policy optimizatio
 
 ---
 
-## 11) Suggested sources used for this Part 2 narrative
+## 12) Suggested sources used for this Part 2 narrative
 
 - A2C: https://huggingface.co/blog/deep-rl-a2c
 - A3C: https://awjuliani.medium.com/simple-reinforcement-learning-with-tensorflow-part-8-asynchronous-actor-critic-agents-a3c-c88f72a5e9f2

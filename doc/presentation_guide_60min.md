@@ -555,12 +555,18 @@ Episode 600:  probs ≈ [0.95, 0.05]   → near-greedy behavior
 
 ### Risk: premature deterministic collapse
 If probabilities collapse too early (`[0.99, 0.01]`), exploration disappears.
-A2C/PPO counter this with entropy bonus:
+A2C/A3C/PPO counter this with entropy bonus:
 
 ```python
 entropy = dist.entropy().mean()
 loss = policy_loss + value_coef * value_loss - entropy_coef * entropy
 ```
+
+### Why entropy is needed in A2C/A3C (plain English)
+- Entropy is a **“randomness bonus”** that keeps the policy from becoming overconfident too early.
+- Without entropy, the agent may lock into one action pattern before it has explored enough.
+- With entropy, the policy stays more exploratory early on, so it can discover better strategies.
+- Practical tuning: higher entropy pressure is usually more useful early in training; later you can reduce `entropy_coef` so behavior becomes more decisive.
 
 ### Comparison summary
 
@@ -641,5 +647,17 @@ REINFORCE weaknesses → Part 2 methods:
 | 3 | Weak credit assignment | **PPO**: clipped surrogate + GAE |
 | 4 | Hyperparameter sensitivity | **TRPO**: KL-constrained trust region |
 | 5 | No update-size guardrail | **PPO**: clipped ratio prevents destructive updates |
+
+### Quick preview: GRPO (for Part 2 discussion)
+
+GRPO (Group Relative Policy Optimization) is a policy-optimization variant used often in modern LLM RL pipelines.
+
+Plain-English intuition:
+- Instead of relying mainly on a value critic, GRPO compares multiple sampled responses within the same prompt/context group.
+- It learns from **relative quality** inside that group (better/worse than peers), then applies PPO-like clipped policy updates.
+
+How it differs from PPO and TRPO:
+- **GRPO vs PPO**: both use clipped updates, but PPO usually uses critic-based advantage (e.g., GAE), while GRPO emphasizes group-relative learning signals.
+- **GRPO vs TRPO**: TRPO enforces an explicit KL trust-region constraint; GRPO keeps PPO-style clipping and group-relative signals, usually with simpler optimization.
 
 All Part 2 methods are direct extensions of the policy-gradient foundations covered in this session.

@@ -2,35 +2,35 @@
   {
     "algo": "Policy Gradient",
     "episodes": 700,
-    "elapsed_sec": 24.617942094802856,
-    "max_avg_reward_100": 17.829999923706055,
-    "final_avg_reward_100": 10.67
+    "elapsed_sec": 25.297800064086914,
+    "max_avg_reward_100": 17.670000076293945,
+    "final_avg_reward_100": 9.97
   },
   {
     "algo": "A2C",
     "episodes": 500,
-    "elapsed_sec": 43.45095157623291,
-    "max_avg_reward_100": 62.06999588012695,
-    "final_avg_reward_100": 62.07
+    "elapsed_sec": 28.83949303627014,
+    "max_avg_reward_100": 47.409996032714844,
+    "final_avg_reward_100": 47.41
   },
   {
     "algo": "A3C",
     "episodes": 500,
-    "elapsed_sec": 66.452800989151,
-    "max_avg_reward_100": 111.61000061035156,
-    "final_avg_reward_100": 99.28
+    "elapsed_sec": 83.016850233078,
+    "max_avg_reward_100": 184.3199920654297,
+    "final_avg_reward_100": 160.09
   },
   {
     "algo": "PPO",
     "episodes": 500,
-    "elapsed_sec": 45.68900442123413,
-    "max_avg_reward_100": 67.79000091552734,
-    "final_avg_reward_100": 67.74
+    "elapsed_sec": 32.60525321960449,
+    "max_avg_reward_100": 60.59000015258789,
+    "final_avg_reward_100": 60.42
   },
   {
     "algo": "TRPO",
     "episodes": 483,
-    "elapsed_sec": 152.4914059638977,
+    "elapsed_sec": 176.43249440193176,
     "max_avg_reward_100": 500.0,
     "final_avg_reward_100": 500.0
   }

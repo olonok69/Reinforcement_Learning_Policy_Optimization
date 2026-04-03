@@ -28,46 +28,64 @@ class TRPOConfig:
 def run_trpo(config: TRPOConfig | None = None) -> list[float]:
     """Train a TRPO agent and return monitored episode rewards."""
 
+    # Use supplied config or default benchmark settings.
     cfg = config or TRPOConfig()
     print("\n--- Starting TRPO ---")
 
     try:
+        # Import TRPO lazily so users can still run non-TRPO scripts
+        # without installing sb3-contrib.
         trpo_module = importlib.import_module("sb3_contrib")
+        # Extract TRPO class from imported module.
         TRPO = trpo_module.TRPO
+        # Import monitor/callback helpers used to capture per-episode rewards.
         from stable_baselines3.common.callbacks import BaseCallback
         from stable_baselines3.common.monitor import Monitor
     except ImportError as exc:
+        # Raise a clear actionable message if dependency is missing.
         raise ImportError(
             "TRPO benchmark requires sb3-contrib. Install with: pip install sb3-contrib"
         ) from exc
 
+    # Reward history collected from Monitor episode info dictionaries.
     rewards: list[float] = []
 
+    # Local callback class to hook into SB3 training steps.
     class EpisodeRewardCallback(BaseCallback):
         def _on_step(self) -> bool:
+            # `infos` is provided by vectorized environment step outputs.
             infos = self.locals.get("infos", [])
             for info in infos:
+                # Monitor injects episode summary into info at episode end.
                 ep = info.get("episode")
                 if ep is not None and "r" in ep:
+                    # Append completed-episode reward for benchmark metrics.
                     rewards.append(float(ep["r"]))
+            # Returning True tells SB3 to continue training.
             return True
 
+    # Wrap environment with Monitor so episode stats are emitted in info dicts.
     env = Monitor(gym.make(cfg.env_name))
 
+    # Create TRPO model with MLP policy.
     model = TRPO(
         policy="MlpPolicy",
         env=env,
         verbose=0,
     )
 
+    # Instantiate callback and run training for requested timesteps.
     callback = EpisodeRewardCallback()
     model.learn(total_timesteps=cfg.total_timesteps, callback=callback)
 
+    # Optional post-training deterministic evaluation video.
     if cfg.record_video:
+        # SB3 predict() API wrapper for shared video helper.
         def _policy(state: np.ndarray) -> int:
             action, _ = model.predict(state, deterministic=True)
             return int(action)
 
+        # Shared recording helper handles environment wrapping and saving.
         record_policy_video(
             env_name=cfg.env_name,
             video_dir=cfg.video_dir,
@@ -76,5 +94,7 @@ def run_trpo(config: TRPOConfig | None = None) -> list[float]:
             policy_fn=_policy,
         )
 
+    # Release environment resources.
     env.close()
+    # Return collected episode rewards for benchmark summary.
     return rewards
