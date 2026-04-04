@@ -264,15 +264,84 @@ surr2 = torch.clamp(ratio, 1-clip_eps, 1+clip_eps) * advantage
 policy_loss = -torch.min(surr1, surr2).mean()
 ```
 
-### GAE (Generalized Advantage Estimation)
+### GAE (Generalized Advantage Estimation) — explicado desde cero
 
-GAE mezcla errores TD multi-paso con parámetro `λ` (default 0.95):
+GAE resuelve un problema fundamental: ¿cómo estimamos "¿fue buena esta acción?"? Hay dos respuestas extremas, y GAE las mezcla.
+
+**El problema: sesgo vs varianza**
+
+Para calcular advantage `A(s,a)`, necesitamos saber cuánto return produjo una acción vs cuánto esperábamos. Pero podemos estimar esto a diferentes horizontes:
 
 ```
-λ=0:    TD puro de 1 paso (baja varianza, alto sesgo)
-λ=1:    Monte Carlo completo (alta varianza, sin sesgo)
-λ=0.95: punto óptimo — mayormente MC pero suavizado por TD
+TD de 1 paso: δₜ = rₜ + γ·V(sₜ₊₁) - V(sₜ)
+              "Mira 1 paso adelante, luego confía en V para el resto"
+              Baja varianza (un reward real) pero alto sesgo (V puede estar mal)
+
+MC completo:  Aₜ = Gₜ - V(sₜ)  =  (rₜ + γrₜ₊₁ + γ²rₜ₊₂ + ...) - V(sₜ)
+              "Espera al final del episodio, usa todos los rewards reales"
+              Sin sesgo (todos rewards reales) pero alta varianza (trayectorias ruidosas)
 ```
+
+**GAE: lo mejor de ambos mundos**
+
+GAE calcula un promedio ponderado de advantages n-step usando parámetro `λ`:
+
+```
+GAE(λ) = δₜ + (γλ)·δₜ₊₁ + (γλ)²·δₜ₊₂ + ...
+
+donde cada δₜ = rₜ + γ·V(sₜ₊₁) - V(sₜ)   (error TD de 1 paso)
+```
+
+Piénsalo así: empieza con el estimado de 1 paso `δₜ`, luego mezcla correcciones de pasos futuros, pero da peso exponencialmente decreciente `(γλ)ᵏ` a cada paso adicional.
+
+**Qué controla λ:**
+
+```
+λ = 0:     GAE = solo δₜ           → TD puro de 1 paso (menor varianza, mayor sesgo)
+λ = 0.5:   GAE = mezcla de ~2-3 pasos → compromiso moderado
+λ = 0.95:  GAE ≈ mayormente Monte Carlo → bajo sesgo, varianza moderada (el punto óptimo)
+λ = 1:     GAE = returns MC completos → sin sesgo, mayor varianza
+```
+
+**Ejemplo numérico** — episodio con 3 pasos, `γ=0.99`, `λ=0.95`:
+
+```
+Rewards: [1, 1, 1],  V(s₀)=2.5, V(s₁)=1.8, V(s₂)=0.9, V(s₃)=0
+
+δ₀ = 1 + 0.99·1.8 - 2.5 = 0.282     (paso 0 ligeramente sobre lo esperado)
+δ₁ = 1 + 0.99·0.9 - 1.8 = 0.091     (paso 1 más o menos esperado)
+δ₂ = 1 + 0.99·0   - 0.9 = 0.100     (paso 2 ligeramente sobre lo esperado)
+
+GAE₂ = δ₂                          = 0.100
+GAE₁ = δ₁ + 0.99·0.95·GAE₂        = 0.091 + 0.094 = 0.185
+GAE₀ = δ₀ + 0.99·0.95·GAE₁        = 0.282 + 0.174 = 0.456
+```
+
+El paso 0 recibe la mayor ventaja porque captura el rendimiento acumulado por encima del promedio de todos los pasos futuros.
+
+**El código — caminando hacia atrás por el rollout:**
+
+```python
+# benchmarks/ppo.py Y benchmarks/trpo_native.py — _compute_gae()
+def _compute_gae(rewards, dones, values, next_value, gamma, gae_lambda):
+    advantages = np.zeros_like(rewards)
+    gae = 0.0
+    for t in reversed(range(len(rewards))):       # caminar HACIA ATRÁS
+        not_done = 1.0 - float(dones[t])
+        next_v = next_value if t == len(rewards)-1 else values[t+1]
+        delta = rewards[t] + gamma * next_v * not_done - values[t]  # error TD
+        gae = delta + gamma * gae_lambda * not_done * gae           # acumular
+        advantages[t] = gae
+    returns = advantages + values                  # targets para red de valor
+    return advantages, returns
+```
+
+El loop camina hacia atrás porque cada `GAE[t]` depende de `GAE[t+1]` — exactamente como calcular returns descontados, pero con el decay extra de `λ` y errores TD en vez de rewards crudos.
+
+**Dónde aparece GAE en este repo:**
+- PPO: `_compute_gae()` en `benchmarks/ppo.py` (λ=0.95)
+- TRPO nativo: `_compute_gae()` en `benchmarks/trpo_native.py` (λ=0.97)
+- A2C: NO usa GAE — usa el más simple `A = G - V(s)` con returns MC completos
 
 ### Flujo de entrenamiento
 1. Recolectar rollout (1024 pasos) con policy actual

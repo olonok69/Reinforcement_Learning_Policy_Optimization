@@ -250,22 +250,84 @@ policy_loss = -torch.min(surr1, surr2).mean()
 If advantage is positive (good action) and ratio > 1.2 → clip truncates the incentive to keep pushing.
 If advantage is negative (bad action) and ratio < 0.8 → clip truncates the penalty.
 
-### GAE (Generalized Advantage Estimation)
+### GAE (Generalized Advantage Estimation) — explained from scratch
 
-GAE blends multi-step TD errors with parameter `λ` (default 0.95):
+GAE solves a fundamental problem: how do we estimate "was this action good?" There are two extreme answers, and GAE blends them.
+
+**The problem: bias vs variance**
+
+To compute advantage `A(s,a)`, we need to know how much return an action actually produced vs how much we expected. But we can estimate this at different horizons:
 
 ```
-λ=0:    pure 1-step TD (low variance, high bias)
-λ=1:    full Monte Carlo (high variance, no bias)
-λ=0.95: sweet spot — mostly Monte Carlo but smoothed by TD
+1-step TD:  δₜ = rₜ + γ·V(sₜ₊₁) - V(sₜ)
+            "Look 1 step ahead, then trust V for the rest"
+            Low variance (one real reward) but high bias (V might be wrong)
+
+Full MC:    Aₜ = Gₜ - V(sₜ)  =  (rₜ + γrₜ₊₁ + γ²rₜ₊₂ + ...) - V(sₜ)
+            "Wait until episode ends, use all real rewards"
+            No bias (all real rewards) but high variance (noisy trajectories)
 ```
+
+**GAE: the best of both worlds**
+
+GAE computes a weighted average of n-step advantages using parameter `λ`:
+
+```
+GAE(λ) = δₜ + (γλ)·δₜ₊₁ + (γλ)²·δₜ₊₂ + ...
+
+where each δₜ = rₜ + γ·V(sₜ₊₁) - V(sₜ)   (1-step TD error)
+```
+
+Think of it as: start with the 1-step estimate `δₜ`, then blend in corrections from future steps, but give exponentially decaying weight `(γλ)ᵏ` to each further step.
+
+**What λ controls:**
+
+```
+λ = 0:     GAE = δₜ only          → pure 1-step TD (lowest variance, highest bias)
+λ = 0.5:   GAE = blend of ~2-3 steps → moderate compromise
+λ = 0.95:  GAE ≈ mostly Monte Carlo  → low bias, moderate variance (the sweet spot)
+λ = 1:     GAE = full MC returns   → zero bias, highest variance
+```
+
+**Numerical example** — episode with 3 steps, `γ=0.99`, `λ=0.95`:
+
+```
+Rewards: [1, 1, 1],  V(s₀)=2.5, V(s₁)=1.8, V(s₂)=0.9, V(s₃)=0
+
+δ₀ = 1 + 0.99·1.8 - 2.5 = 0.282     (step 0 was slightly above expected)
+δ₁ = 1 + 0.99·0.9 - 1.8 = 0.091     (step 1 roughly as expected)
+δ₂ = 1 + 0.99·0   - 0.9 = 0.100     (step 2 slightly above expected)
+
+GAE₂ = δ₂                          = 0.100
+GAE₁ = δ₁ + 0.99·0.95·GAE₂        = 0.091 + 0.094 = 0.185
+GAE₀ = δ₀ + 0.99·0.95·GAE₁        = 0.282 + 0.174 = 0.456
+```
+
+Step 0 gets the highest advantage because it captures the accumulated above-average performance across all future steps.
+
+**The code — walking backwards through the rollout:**
 
 ```python
-# benchmarks/ppo.py — _compute_gae()
-delta = rewards[t] + gamma * next_v * not_done - values[t]
-gae = delta + gamma * gae_lambda * not_done * gae
-advantages[t] = gae
+# benchmarks/ppo.py AND benchmarks/trpo_native.py — _compute_gae()
+def _compute_gae(rewards, dones, values, next_value, gamma, gae_lambda):
+    advantages = np.zeros_like(rewards)
+    gae = 0.0
+    for t in reversed(range(len(rewards))):       # walk BACKWARDS
+        not_done = 1.0 - float(dones[t])
+        next_v = next_value if t == len(rewards)-1 else values[t+1]
+        delta = rewards[t] + gamma * next_v * not_done - values[t]  # TD error
+        gae = delta + gamma * gae_lambda * not_done * gae           # accumulate
+        advantages[t] = gae
+    returns = advantages + values                  # targets for value network
+    return advantages, returns
 ```
+
+The loop walks backwards because each `GAE[t]` depends on `GAE[t+1]` — exactly like computing discounted returns, but with the extra `λ` decay and TD errors instead of raw rewards.
+
+**Where GAE appears in this repo:**
+- PPO: `_compute_gae()` in `benchmarks/ppo.py` (λ=0.95)
+- TRPO native: `_compute_gae()` in `benchmarks/trpo_native.py` (λ=0.97)
+- A2C: does NOT use GAE — uses simpler `A = G - V(s)` with full MC returns
 
 ### Training flow
 1. Collect rollout (1024 steps) with current policy, storing states, actions, log_probs, rewards, values
