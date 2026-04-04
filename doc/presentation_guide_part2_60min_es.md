@@ -309,19 +309,25 @@ Contras:
 - maquinaria de optimización más pesada (gradiente conjugado + backtracking line search)
 
 ### Mapa de código
-- Wrapper de integración: [benchmarks/trpo.py](../benchmarks/trpo.py)
-- Runner standalone: [trpo_benchmark.py](../trpo_benchmark.py)
+- Router de backends (sb3 + native): [benchmarks/trpo.py](../benchmarks/trpo.py)
+- Entrenador TRPO nativo (CartPole discreto): [benchmarks/trpo_native.py](../benchmarks/trpo_native.py)
+- Utilidades matemáticas TRPO nativo (CG + line search): [benchmarks/trpo_core.py](../benchmarks/trpo_core.py)
+- Runner standalone / bandera de backend: [trpo_benchmark.py](../trpo_benchmark.py)
+- Orquestador unificado / bandera de backend: [run_all_comparison.py](../run_all_comparison.py)
 
 ### Qué señalar en el código
-- dependencia de `sb3-contrib`
-- captura de recompensas por callback
-- consistencia de interfaz de benchmark respecto a otros métodos
+- Dos rutas de implementación bajo una sola interfaz: `backend="sb3"` vs `backend="native"`
+- La ruta nativa implementa explícitamente la mecánica trust-region (gradiente conjugado + backtracking line search)
+- Mismo contrato de salida de benchmark para ambos backends (`list[float]` rewards)
+- Mismo flujo CLI/orquestador, solo cambia la bandera de backend
 
 ### Concepto clave → ancla exacta en código
-- Import externo TRPO y validación: `importlib.import_module("sb3_contrib")` en [../benchmarks/trpo.py](../benchmarks/trpo.py)
-- Callback de recolección de rewards: `EpisodeRewardCallback` en [../benchmarks/trpo.py](../benchmarks/trpo.py)
-- Entrypoint compatible con benchmark: `run_trpo(...)` en [../benchmarks/trpo.py](../benchmarks/trpo.py)
-- Puente CLI: [../trpo_benchmark.py](../trpo_benchmark.py)
+- Entrypoint de despacho por backend: `run_trpo(...)` con `cfg.backend` en [../benchmarks/trpo.py](../benchmarks/trpo.py)
+- Entrypoint del entrenador nativo: `run_trpo_native(...)` en [../benchmarks/trpo_native.py](../benchmarks/trpo_native.py)
+- Resolución trust-region nativa: `conjugate_gradients(...)` y `backtracking_line_search(...)` en [../benchmarks/trpo_core.py](../benchmarks/trpo_core.py)
+- Internals del paso nativo: `fisher_vector_product`, `step_dir`, `full_step` en [../benchmarks/trpo_native.py](../benchmarks/trpo_native.py)
+- Switch CLI: `--backend sb3|native` en [../trpo_benchmark.py](../trpo_benchmark.py)
+- Switch unificado: `--trpo-backend sb3|native` en [../run_all_comparison.py](../run_all_comparison.py)
 
 ### La restricción de trust region
 
@@ -369,7 +375,25 @@ Resumen rápido:
 - Cuando el presupuesto de cómputo permite el costo extra por update
 
 ### Código: benchmarks/trpo.py
-Este repo usa la implementación de TRPO de `sb3-contrib` envuelta para compatibilidad de benchmark. Como sb3 maneja el training loop internamente, las recompensas se capturan por callback para consistencia con los otros métodos.
+Este repo ahora soporta **implementaciones paralelas de TRPO** detrás de una única interfaz de benchmark:
+- **Backend SB3** (`sb3-contrib`) para comportamiento base estable de producción.
+- **Backend nativo** (`benchmarks/trpo_native.py`) para comparación educativa/experimental y visibilidad completa de internals trust-region.
+
+Para presentación, esto permite mostrar ambos enfoques:
+- integración tipo wrapper industrial (`sb3`), y
+- internals algorítmicos (`native`) con gradiente conjugado + line search dentro del código del proyecto.
+
+### Comandos demo para comparar backends (solo TRPO)
+```bash
+uv run python trpo_benchmark.py --backend sb3 --timesteps 20000
+uv run python trpo_benchmark.py --backend native --timesteps 20000
+```
+
+### Comando unificado (mismo pipeline, solo cambia backend)
+```bash
+uv run python run_all_comparison.py --methods trpo --trpo-backend sb3 --trpo-timesteps 20000
+uv run python run_all_comparison.py --methods trpo --trpo-backend native --trpo-timesteps 20000
+```
 
 ---
 

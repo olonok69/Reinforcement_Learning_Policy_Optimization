@@ -21,6 +21,16 @@ def _build_methods(
     a3c_episodes: int = 500,
     ppo_episodes: int = 500,
     trpo_timesteps: int = 100_000,
+    trpo_backend: str = "sb3",
+    trpo_batch_size: int = 2_048,
+    trpo_gamma: float = 0.99,
+    trpo_gae_lambda: float = 0.97,
+    trpo_max_kl: float = 1e-2,
+    trpo_damping: float = 1e-1,
+    trpo_cg_steps: int = 10,
+    trpo_value_lr: float = 1e-3,
+    trpo_value_iters: int = 40,
+    trpo_hidden_size: int = 128,
     a3c_workers: int = 4,
     a3c_rollout_steps: int = 5,
     record_video: bool = False,
@@ -55,6 +65,16 @@ def _build_methods(
     )
     trpo_cfg = TRPOConfig(
         total_timesteps=trpo_timesteps,
+        backend=trpo_backend,
+        batch_size=trpo_batch_size,
+        gamma=trpo_gamma,
+        gae_lambda=trpo_gae_lambda,
+        max_kl=trpo_max_kl,
+        damping=trpo_damping,
+        cg_steps=trpo_cg_steps,
+        value_lr=trpo_value_lr,
+        value_iters=trpo_value_iters,
+        hidden_size=trpo_hidden_size,
         record_video=record_video,
         video_dir=f"{video_dir}/trpo",
         video_episodes=video_episodes,
@@ -92,6 +112,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--a3c-episodes", type=int, default=500, help="Training episodes for A3C")
     parser.add_argument("--ppo-episodes", type=int, default=500, help="Training episodes for PPO")
     parser.add_argument("--trpo-timesteps", type=int, default=100_000, help="Training timesteps for TRPO")
+    parser.add_argument("--trpo-backend", choices=["sb3", "native"], default="sb3", help="TRPO backend implementation")
+    parser.add_argument("--trpo-batch-size", type=int, default=2_048, help="Native TRPO rollout batch size")
+    parser.add_argument("--trpo-gamma", type=float, default=0.99, help="Native TRPO discount factor")
+    parser.add_argument("--trpo-gae-lambda", type=float, default=0.97, help="Native TRPO GAE lambda")
+    parser.add_argument("--trpo-max-kl", type=float, default=1e-2, help="Native TRPO KL constraint")
+    parser.add_argument("--trpo-damping", type=float, default=1e-1, help="Native TRPO damping for Fisher-vector product")
+    parser.add_argument("--trpo-cg-steps", type=int, default=10, help="Native TRPO conjugate-gradient iterations")
+    parser.add_argument("--trpo-value-lr", type=float, default=1e-3, help="Native TRPO value network learning rate")
+    parser.add_argument("--trpo-value-iters", type=int, default=40, help="Native TRPO value network updates per batch")
+    parser.add_argument("--trpo-hidden-size", type=int, default=128, help="Native TRPO hidden layer width")
     parser.add_argument("--a3c-workers", type=int, default=4, help="Number of parallel workers for A3C")
     parser.add_argument("--a3c-rollout-steps", type=int, default=5, help="Rollout steps per A3C worker update")
     parser.add_argument("--record-video", action="store_true", help="Record evaluation videos for selected methods")
@@ -136,6 +166,16 @@ def main() -> None:
         a3c_episodes=args.a3c_episodes,
         ppo_episodes=args.ppo_episodes,
         trpo_timesteps=args.trpo_timesteps,
+        trpo_backend=args.trpo_backend,
+        trpo_batch_size=args.trpo_batch_size,
+        trpo_gamma=args.trpo_gamma,
+        trpo_gae_lambda=args.trpo_gae_lambda,
+        trpo_max_kl=args.trpo_max_kl,
+        trpo_damping=args.trpo_damping,
+        trpo_cg_steps=args.trpo_cg_steps,
+        trpo_value_lr=args.trpo_value_lr,
+        trpo_value_iters=args.trpo_value_iters,
+        trpo_hidden_size=args.trpo_hidden_size,
         a3c_workers=args.a3c_workers,
         a3c_rollout_steps=args.a3c_rollout_steps,
         record_video=args.record_video,

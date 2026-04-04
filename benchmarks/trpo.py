@@ -7,11 +7,13 @@ consistent benchmark interface used by the repository orchestrators.
 
 from dataclasses import dataclass
 import importlib
+from typing import Literal
 
 import gymnasium as gym
 import numpy as np
 
 from benchmarks.common import record_policy_video
+from benchmarks.trpo_native import TRPONativeConfig, run_trpo_native
 
 
 @dataclass
@@ -20,9 +22,21 @@ class TRPOConfig:
 
     env_name: str = "CartPole-v1"
     total_timesteps: int = 100_000
+    backend: Literal["sb3", "native"] = "sb3"
     record_video: bool = False
     video_dir: str = "videos/trpo"
     video_episodes: int = 3
+
+    # Native TRPO-specific parameters (used when backend="native").
+    batch_size: int = 2_048
+    gamma: float = 0.99
+    gae_lambda: float = 0.97
+    max_kl: float = 1e-2
+    damping: float = 1e-1
+    cg_steps: int = 10
+    value_lr: float = 1e-3
+    value_iters: int = 40
+    hidden_size: int = 128
 
 
 def run_trpo(config: TRPOConfig | None = None) -> list[float]:
@@ -30,6 +44,26 @@ def run_trpo(config: TRPOConfig | None = None) -> list[float]:
 
     # Use supplied config or default benchmark settings.
     cfg = config or TRPOConfig()
+
+    if cfg.backend == "native":
+        native_cfg = TRPONativeConfig(
+            env_name=cfg.env_name,
+            total_timesteps=cfg.total_timesteps,
+            batch_size=cfg.batch_size,
+            gamma=cfg.gamma,
+            gae_lambda=cfg.gae_lambda,
+            max_kl=cfg.max_kl,
+            damping=cfg.damping,
+            cg_steps=cfg.cg_steps,
+            value_lr=cfg.value_lr,
+            value_iters=cfg.value_iters,
+            hidden_size=cfg.hidden_size,
+            record_video=cfg.record_video,
+            video_dir=cfg.video_dir,
+            video_episodes=cfg.video_episodes,
+        )
+        return run_trpo_native(native_cfg)
+
     print("\n--- Starting TRPO ---")
 
     try:
